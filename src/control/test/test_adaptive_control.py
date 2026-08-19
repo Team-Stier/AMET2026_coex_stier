@@ -1,7 +1,10 @@
 import math
 import unittest
 
-from control.adaptive_policy import AdaptiveControlPolicy
+from control.adaptive_policy import (
+    AdaptiveControlPolicy,
+    curvature_speed_limit,
+)
 from control.controller_core import ControllerCore
 from control.models import (
     AdaptiveControlConfig,
@@ -23,7 +26,8 @@ def adaptive_config(**overrides):
         "min_lookahead_m": 0.25,
         "max_lookahead_m": 0.45,
         "curvature_reference_inv_m": 2.0,
-        "min_speed_limit_m_s": 0.50,
+        "max_lateral_acceleration_m_s2": 0.8,
+        "min_speed_limit_m_s": 0.30,
         "max_speed_limit_m_s": 0.80,
     }
     values.update(overrides)
@@ -142,31 +146,65 @@ class AdaptivePolicyTests(unittest.TestCase):
                     result.speed_limit_m_s, config.max_speed_limit_m_s
                 )
 
+    def test_lateral_acceleration_speed_law(self):
+        config = adaptive_config()
+        expected_speeds = {
+            0.0: 0.80,
+            1.0: 0.80,
+            2.0: math.sqrt(0.8 / 2.0),
+            5.0: math.sqrt(0.8 / 5.0),
+            8.0: math.sqrt(0.8 / 8.0),
+            100.0: 0.30,
+        }
+        for curvature, expected in expected_speeds.items():
+            with self.subTest(curvature=curvature):
+                self.assertAlmostEqual(
+                    curvature_speed_limit(curvature, config), expected
+                )
+
+    def test_zero_minimum_speed_is_valid(self):
+        config = adaptive_config(min_speed_limit_m_s=0.0)
+        self.assertEqual(config.min_speed_limit_m_s, 0.0)
+
+    def test_negative_minimum_speed_is_invalid(self):
+        with self.assertRaises(ValueError):
+            adaptive_config(min_speed_limit_m_s=-0.01)
+
 
 class ControllerIntegrationTests(unittest.TestCase):
-    def test_point_five_target_is_not_raised_by_speed_limit(self):
+    def test_point_five_target_is_reduced_by_point_three_speed_limit(self):
         result = make_core(
-            adaptive_config(curvature_reference_inv_m=0.01)
+            adaptive_config(max_lateral_acceleration_m_s2=0.01)
         ).update(
             VehicleState(0.0, 0.0, 0.0, 0.0),
             [(0.0, 0.0), (0.3, 0.0), (0.3, 0.3), (0.3, 0.6)],
             target_speed=0.5,
             dt=0.02,
         )
-        self.assertEqual(result.adaptive.speed_limit_m_s, 0.5)
-        self.assertEqual(result.speed_command_m_s, 0.5)
+        self.assertEqual(result.adaptive.speed_limit_m_s, 0.3)
+        self.assertEqual(result.speed_command_m_s, 0.3)
+
+    def test_point_four_target_is_not_raised_on_straight(self):
+        result = make_core(adaptive_config()).update(
+            VehicleState(0.0, 0.0, 0.0, 0.0),
+            [(0.0, 0.0), (0.4, 0.0), (0.8, 0.0)],
+            target_speed=0.4,
+            dt=0.02,
+        )
+        self.assertEqual(result.adaptive.speed_limit_m_s, 0.8)
+        self.assertEqual(result.speed_command_m_s, 0.4)
 
     def test_pid_receives_curvature_limited_target(self):
         result = make_core(
-            adaptive_config(curvature_reference_inv_m=0.01),
+            adaptive_config(max_lateral_acceleration_m_s2=0.01),
             pid_enabled=True,
         ).update(
-            VehicleState(0.0, 0.0, 0.0, 0.4),
+            VehicleState(0.0, 0.0, 0.0, 0.2),
             [(0.0, 0.0), (0.3, 0.0), (0.3, 0.3), (0.3, 0.6)],
             target_speed=0.8,
             dt=0.02,
         )
-        self.assertEqual(result.adaptive.speed_limit_m_s, 0.5)
+        self.assertEqual(result.adaptive.speed_limit_m_s, 0.3)
         self.assertAlmostEqual(result.pid.error, 0.1)
 
     def test_adaptive_off_matches_legacy_controller_result(self):

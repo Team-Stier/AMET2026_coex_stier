@@ -1,5 +1,6 @@
 """Curvature-based adaptive lookahead and speed-cap policy."""
 
+import math
 from typing import Sequence
 
 from .models import (
@@ -8,6 +9,8 @@ from .models import (
     VehicleState,
 )
 from .path_metrics import PointInput, preview_curvature
+
+CURVATURE_EPSILON_INV_M = 1.0e-9
 
 
 class AdaptiveControlPolicy:
@@ -34,15 +37,30 @@ class AdaptiveControlPolicy:
         lookahead = self.config.max_lookahead_m - normalized * (
             self.config.max_lookahead_m - self.config.min_lookahead_m
         )
-        speed_limit = self.config.max_speed_limit_m_s - normalized * (
-            self.config.max_speed_limit_m_s
-            - self.config.min_speed_limit_m_s
-        )
+        speed_limit = curvature_speed_limit(curvature, self.config)
         return AdaptiveControlResult(
             curvature_inv_m=curvature,
             lookahead_distance_m=lookahead,
             speed_limit_m_s=speed_limit,
         )
+
+
+def curvature_speed_limit(
+    curvature_inv_m: float, config: AdaptiveControlConfig
+) -> float:
+    """Bound speed using the configured maximum lateral acceleration."""
+
+    if curvature_inv_m <= CURVATURE_EPSILON_INV_M:
+        return config.max_speed_limit_m_s
+    curve_speed = math.sqrt(
+        config.max_lateral_acceleration_m_s2
+        / max(curvature_inv_m, CURVATURE_EPSILON_INV_M)
+    )
+    return _clamp(
+        curve_speed,
+        config.min_speed_limit_m_s,
+        config.max_speed_limit_m_s,
+    )
 
 
 def _clamp(value: float, lower: float, upper: float) -> float:

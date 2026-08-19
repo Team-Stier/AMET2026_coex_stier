@@ -17,25 +17,35 @@ Current SIM mock-route experiment:
 - `closed_loop = true`
 - PID = false
 - Adaptive Control = true for A/B test
-- planner target speed = 0.5 m/s
+- planner target speed = 0.80 m/s
 - preview distance = 1.0 m
 - min lookahead = 0.25 m
 - max lookahead = 0.45 m
 - curvature reference = 2.0 1/m
-- curvature speed-limit range = 0.50–0.80 m/s
+- maximum lateral acceleration = 0.8 m/s²
+- curvature speed-limit range = 0.30–0.80 m/s
 
 Adaptive Control computes a stateless preview-path curvature on every update. It
 uses that metric to reduce lookahead and to provide a curvature speed cap. The
-speed policy is only an upper limit and never raises the planner target:
+speed policy follows the lateral-acceleration relation and is clamped to the
+configured speed-limit range:
+
+```text
+v_curve = sqrt(max_lateral_acceleration / curvature)
+```
+
+Near-zero curvature uses the maximum speed limit. The policy is only an upper
+limit and never raises the planner target:
 
 ```text
 effective target speed = min(planner target speed, curvature speed limit)
 ```
 
-With the first A/B test's 0.5 m/s planner target and a minimum curvature speed
-limit of 0.5 m/s, the speed command remains 0.5 m/s everywhere. This isolates the
-effect of Adaptive Lookahead. After that comparison, a higher straight target
-speed can be used to validate the curvature speed cap separately.
+For the first speed-policy SIM experiment, the planner target is 0.80 m/s and
+curvature may reduce the command as low as the configured 0.30 m/s limit. The
+0.30 m/s value is an initial SIM experiment parameter, not a fixed minimum speed
+embedded in the controller core. It must be tuned from measured tracking and
+lateral behavior.
 
 ## SIM and REAL separation
 

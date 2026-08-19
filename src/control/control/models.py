@@ -95,7 +95,8 @@ class AdaptiveControlConfig:
     min_lookahead_m: float = 0.25
     max_lookahead_m: float = 0.45
     curvature_reference_inv_m: float = 2.0
-    min_speed_limit_m_s: float = 0.50
+    max_lateral_acceleration_m_s2: float = 0.8
+    min_speed_limit_m_s: float = 0.30
     max_speed_limit_m_s: float = 0.80
 
     def __post_init__(self) -> None:
@@ -107,6 +108,10 @@ class AdaptiveControlConfig:
             raise ValueError("min_lookahead_m must not exceed max_lookahead_m")
         if self.curvature_reference_inv_m <= 0.0:
             raise ValueError("curvature_reference_inv_m must be positive")
+        if self.max_lateral_acceleration_m_s2 <= 0.0:
+            raise ValueError(
+                "max_lateral_acceleration_m_s2 must be positive"
+            )
         if self.min_speed_limit_m_s < 0.0:
             raise ValueError("min_speed_limit_m_s must not be negative")
         if self.min_speed_limit_m_s > self.max_speed_limit_m_s:
