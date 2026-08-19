@@ -1,6 +1,6 @@
 """Small, ROS-independent data models used by the controller algorithms."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Sequence, Tuple
 
 
@@ -87,12 +87,53 @@ class PIDResult:
 
 
 @dataclass(frozen=True)
+class AdaptiveControlConfig:
+    """Curvature-based lookahead and speed-cap parameters in SI units."""
+
+    enabled: bool = False
+    preview_distance_m: float = 1.0
+    min_lookahead_m: float = 0.25
+    max_lookahead_m: float = 0.45
+    curvature_reference_inv_m: float = 2.0
+    min_speed_limit_m_s: float = 0.50
+    max_speed_limit_m_s: float = 0.80
+
+    def __post_init__(self) -> None:
+        if self.preview_distance_m <= 0.0:
+            raise ValueError("preview_distance_m must be positive")
+        if self.min_lookahead_m <= 0.0:
+            raise ValueError("min_lookahead_m must be positive")
+        if self.min_lookahead_m > self.max_lookahead_m:
+            raise ValueError("min_lookahead_m must not exceed max_lookahead_m")
+        if self.curvature_reference_inv_m <= 0.0:
+            raise ValueError("curvature_reference_inv_m must be positive")
+        if self.min_speed_limit_m_s < 0.0:
+            raise ValueError("min_speed_limit_m_s must not be negative")
+        if self.min_speed_limit_m_s > self.max_speed_limit_m_s:
+            raise ValueError(
+                "min_speed_limit_m_s must not exceed max_speed_limit_m_s"
+            )
+
+
+@dataclass(frozen=True)
+class AdaptiveControlResult:
+    """Curvature metric and commands selected by the adaptive policy."""
+
+    curvature_inv_m: float
+    lookahead_distance_m: float
+    speed_limit_m_s: float
+
+
+@dataclass(frozen=True)
 class ControllerConfig:
     """Shared controller behavior independent of any ROS transport."""
 
     longitudinal_pid_enabled: bool
     max_speed_m_s: float
     stop_speed_threshold_m_s: float = 1.0e-6
+    adaptive_control: AdaptiveControlConfig = field(
+        default_factory=AdaptiveControlConfig
+    )
 
     def __post_init__(self) -> None:
         if self.max_speed_m_s <= 0.0:
@@ -109,6 +150,7 @@ class ControllerResult:
     speed_command_m_s: float
     pure_pursuit: PurePursuitResult
     pid: Optional[PIDResult]
+    adaptive: Optional[AdaptiveControlResult] = None
 
 
 PathLike = Sequence[Tuple[float, float]]

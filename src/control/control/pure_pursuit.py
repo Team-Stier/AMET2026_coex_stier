@@ -1,7 +1,7 @@
 """ROS-independent Pure Pursuit lateral controller."""
 
 import math
-from typing import List, Sequence, Tuple, Union
+from typing import List, Optional, Sequence, Tuple, Union
 
 from .geometry import as_path_point, distance_xy, normalize_angle
 from .models import PathPoint, PurePursuitConfig, PurePursuitResult, VehicleState
@@ -29,7 +29,10 @@ class PurePursuit:
         return points
 
     def compute(
-        self, state: VehicleState, path: Sequence[PointInput]
+        self,
+        state: VehicleState,
+        path: Sequence[PointInput],
+        lookahead_distance_override_m: Optional[float] = None,
     ) -> PurePursuitResult:
         """Return a steering command and target-selection debug information.
 
@@ -37,6 +40,14 @@ class PurePursuit:
         that point, the first forward waypoint at least one lookahead distance
         from the vehicle is selected. The final waypoint is a safe fallback.
         """
+
+        lookahead_distance = (
+            self.config.lookahead_distance_m
+            if lookahead_distance_override_m is None
+            else lookahead_distance_override_m
+        )
+        if lookahead_distance <= 0.0:
+            raise ValueError("lookahead distance override must be positive")
 
         points = self._coerce_path(path)
         distances = [distance_xy(state.x, state.y, p.x, p.y) for p in points]
@@ -60,14 +71,14 @@ class PurePursuit:
             target_index = nearest_index
             for offset in range(logical_count):
                 index = (nearest_index + offset) % logical_count
-                if distances[index] >= self.config.lookahead_distance_m:
+                if distances[index] >= lookahead_distance:
                     target_index = index
                     break
         else:
             nearest_index = min(range(len(points)), key=distances.__getitem__)
             target_index = len(points) - 1
             for index in range(nearest_index, len(points)):
-                if distances[index] >= self.config.lookahead_distance_m:
+                if distances[index] >= lookahead_distance:
                     target_index = index
                     break
 

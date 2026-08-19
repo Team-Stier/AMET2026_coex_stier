@@ -2,6 +2,7 @@
 
 from typing import Sequence
 
+from .adaptive_policy import AdaptiveControlPolicy
 from .models import ControllerConfig, ControllerResult, VehicleState
 from .pid import PIDController
 from .pure_pursuit import PointInput, PurePursuit
@@ -19,6 +20,7 @@ class ControllerCore:
         self.pure_pursuit = pure_pursuit
         self.pid = pid
         self.config = config
+        self.adaptive_policy = AdaptiveControlPolicy(config.adaptive_control)
 
     def update(
         self,
@@ -27,8 +29,26 @@ class ControllerCore:
         target_speed: float,
         dt: float,
     ) -> ControllerResult:
-        lateral = self.pure_pursuit.compute(vehicle_state, path)
-        bounded_target = _clamp(target_speed, 0.0, self.config.max_speed_m_s)
+        adaptive_result = None
+        lookahead_override = None
+        speed_limit = self.config.max_speed_m_s
+        if self.config.adaptive_control.enabled:
+            adaptive_result = self.adaptive_policy.compute(
+                vehicle_state,
+                path,
+                closed_loop=self.pure_pursuit.config.closed_loop,
+            )
+            lookahead_override = adaptive_result.lookahead_distance_m
+            speed_limit = adaptive_result.speed_limit_m_s
+
+        lateral = self.pure_pursuit.compute(
+            vehicle_state,
+            path,
+            lookahead_distance_override_m=lookahead_override,
+        )
+        bounded_target = _clamp(
+            min(target_speed, speed_limit), 0.0, self.config.max_speed_m_s
+        )
 
         if (
             self.config.longitudinal_pid_enabled
@@ -60,6 +80,7 @@ class ControllerCore:
             speed_command_m_s=speed_command,
             pure_pursuit=lateral,
             pid=pid_result,
+            adaptive=adaptive_result,
         )
 
 
