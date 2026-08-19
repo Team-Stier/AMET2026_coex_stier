@@ -9,9 +9,25 @@ cd /home/physicar/physicar_ws
 ```
 
 ## Convention
-좌표계
+
+### 좌표계
+
 - 차량의 진행 방향 `+x`
 - 진행 방향의 왼쪽 `+y`
+
+### 패키지 개발
+
+- 각 패키지의 소스 코드, 설정, 모델, 테스트 및 패키지 전용 실행 스크립트는 반드시
+  `src/<package_name>/` 안에 둔다. 패키지를 개발하면서 저장소 루트나 다른 패키지
+  폴더에 소스 코드가 역류하지 않도록 주의한다.
+- 프로젝트 내부 패키지는 메시지 전용 `interfaces` 패키지를 제외한 다른 내부 패키지를
+  직접 참조하지 않는다. 다른 패키지의 Python 모듈을 import하거나 소스 파일을 상대
+  경로로 읽지 않으며, `package.xml`과 빌드 설정에도 다른 내부 패키지 의존성을 추가하지
+  않는다.
+- 내부 패키지 간 데이터 전달은 ROS 2 토픽, 서비스 또는 액션으로만 수행한다. 패키지
+  사이에서 공유해야 하는 메시지·서비스·액션 타입은 `interfaces`에 정의한다.
+- `rclpy`, `std_msgs`, `sensor_msgs`, `nav_msgs`와 같은 표준 ROS 2 패키지 및 필요한
+  외부 라이브러리 의존성은 각 패키지에서 명시적으로 선언할 수 있다.
 
 ## ROS 2 architecture
 
@@ -103,7 +119,7 @@ Sensor and control topic contracts follow the
 ### Nodes
 
 - **Object Detection Node**: `/scan`의 LiDAR 거리 데이터를 이용해 주행 경로상의 장애물을 클러스터링하고, 장애물들을 원으로 피팅 후 원의 중심점을 리스트로 `/object_info`발행한다.
-- **Traffic Light Node**: `/camera/image_raw/compressed`의 카메라 영상에서 yolo를 이용해 신호등을 판독하고, 결과를 `/gosign`으로 발행한다. 발행 이후 이 노드는 즉시 종료된다.
+- **Traffic Light Node**: `/camera/image_raw/compressed`의 카메라 영상에서 `yolo`를 이용해 신호등을 판독하고, 결과를 `/gosign`으로 발행한다. 발행 이후 이 노드는 즉시 종료된다. 실행 환경에 `yolo`sw가 설치 되어 있으므로 개발시 참고하도록 한다.
 - **Calibration Node**: 카메라 영상을 `/camera/pan`으로 보정 후, 카메라 이미지에 인식된 중앙차선을 로컬 좌표계의 rddf에 피팅한다. 피팅 결과를 바탕으로 `/odom`을 보정한다. 보정 결과를 `/odom/calibride`로 발행한다.
 - **Path Planning Node**: RDDF 경로와 `/odom`, `/odom/calibride`, `/object_info`를 이용해 주행 가능한 경로를 계획하고 `/path`로 발행한다.
 - **Control Node**: `/path`와 `/gosign`을 바탕으로 차량의 속도, 조향각, 카메라 팬 각도를 계산해 각각의 제어 토픽으로 발행한다.
