@@ -15,7 +15,7 @@ cd /home/physicar/physicar_ws
 - 차량의 진행 방향 `+x`
 - 진행 방향의 왼쪽 `+y`
 
-### 패키지 개발
+## 패키지 구조 설계
 
 - 각 패키지의 소스 코드, 설정, 모델, 테스트 및 패키지 전용 실행 스크립트는 반드시
   `src/<package_name>/` 안에 둔다. 패키지를 개발하면서 저장소 루트나 다른 패키지
@@ -28,6 +28,21 @@ cd /home/physicar/physicar_ws
   사이에서 공유해야 하는 메시지·서비스·액션 타입은 `interfaces`에 정의한다.
 - `rclpy`, `std_msgs`, `sensor_msgs`, `nav_msgs`와 같은 표준 ROS 2 패키지 및 필요한
   외부 라이브러리 의존성은 각 패키지에서 명시적으로 선언할 수 있다.
+
+### 패키지 구성
+
+```text
+src/
+├── interfaces/
+├── object_detection/
+├── traffic_light/
+├── calibration/
+├── path_planning/
+└── control/
+```
+
+`interfaces`를 제외한 각 실행 패키지는 동명의 노드 하나와 1:1로 대응한다.
+`interfaces`는 실행 노드 없이, 노드 패키지 사이에서 공유하는 사용자 정의 메시지, 서비스 및 액션 타입만 제공한다.
 
 ## ROS 2 architecture
 
