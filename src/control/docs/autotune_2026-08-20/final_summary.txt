@@ -1,0 +1,52 @@
+PhysiCar SIM Controller Autotune Final Summary
+================================================
+session_id: 20260820T034716Z
+termination_reason: OPTIMUM_CONVERGED
+elapsed_tuning_time: 59.2 min
+total_experiments: 72
+lap_experiments: 63
+successful_laps: 63
+failed_runs: 0
+reason: recent candidate scores plateaued below 1% improvement; L0.250-0.400_C2.00_P1.00_A0.80_PID_OFF passed three repeatability laps; elapsed=59.2 min
+
+Baseline
+--------
+minLA=0.250 maxLA=0.450 curvRef=2.00 preview=1.00 maxLatAcc=0.80 PID=OFF kp=0.000 ki=0.000 kd=0.000
+laps=2/2 lap_time=48.0229 s mean_error=0.0189 m p95_error=0.0437 m max_error=0.0459 m max_steer=19.664 deg p95_rate=0.6981 rad/s saturation=0
+
+Selected configurations
+-----------------------
+best_tracking: minLA=0.200 maxLA=0.450 curvRef=1.90 preview=1.00 maxLatAcc=0.80 PID=OFF kp=0.000 ki=0.000 kd=0.000
+best_stability: minLA=0.200 maxLA=0.450 curvRef=2.00 preview=1.10 maxLatAcc=0.80 PID=OFF kp=0.000 ki=0.000 kd=0.000
+best_balanced: minLA=0.250 maxLA=0.400 curvRef=2.00 preview=1.00 maxLatAcc=0.80 PID=OFF kp=0.000 ki=0.000 kd=0.000
+
+Best balanced validation
+------------------------
+laps=3/3 lap_time=47.9953 s mean_error=0.0186 m p95_error=0.0430 m max_error=0.0456 m max_steer=19.540 deg p95_rate=0.7025 rad/s saturation=0
+improvement (positive is better): mean_path_error=+1.36%, p95_path_error=+1.42%, max_path_error=+0.60%, max_abs_steering=+0.63%, p95_steering_rate=-0.63%, lap_time=+0.06%
+
+PID OFF vs PID ON
+------------------
+PID_OFF_step_score=0.0953 best_PID_ON_step_score=0.0850 final=PID OFF (minLA=0.250 maxLA=0.400 curvRef=2.00 preview=1.00 maxLatAcc=0.80 PID=OFF kp=0.000 ki=0.000 kd=0.000)
+
+Ranking (configuration aggregates; higher score is better)
+----------------------------------------------------------
+rank success score  lap_s meanErr maxErr maxSteer p95Rate config
+   1 100.0%  92.70 47.7252  0.0186 0.0457   19.536  0.7016 L0.250-0.400_C2.00_P1.00_A0.80_PID_OFF
+   2 100.0%  91.86 43.8269  0.0189 0.0468   19.591  0.7137 L0.275-0.450_C1.50_P1.00_A1.00_PID_OFF
+   3 100.0%  91.31 46.7623  0.0192 0.0468   19.551  0.6832 L0.275-0.450_C1.50_P1.00_A0.80_PID_OFF
+   4 100.0%  90.85 54.1694  0.0195 0.0472   19.445  0.6730 L0.275-0.450_C1.50_P1.00_A0.60_PID_OFF
+   5 100.0%  90.64 50.6696  0.0192 0.0474   19.561  0.6862 L0.275-0.450_C1.50_P1.00_A0.70_PID_OFF
+   6 100.0%  89.89 45.6274  0.0200 0.0485   19.538  0.6767 L0.275-0.400_C2.00_P1.00_A0.90_PID_OFF
+   7 100.0%  89.18 50.6758  0.0203 0.0484   19.552  0.6498 L0.275-0.400_C2.00_P1.00_A0.70_PID_OFF
+   8 100.0%  89.15 46.6643  0.0201 0.0486   19.575  0.6739 L0.275-0.400_C2.00_P1.00_A0.80_PID_OFF
+   9 100.0%  87.68 54.0750  0.0204 0.0493   19.592  0.6487 L0.275-0.400_C2.00_P1.00_A0.60_PID_OFF
+  10 100.0%  81.98 46.9689  0.0158 0.0388   19.795  0.8118 L0.225-0.450_C1.50_P1.00_A0.80_PID_OFF
+  11 100.0%  81.91 47.0180  0.0156 0.0380   19.867  0.8148 L0.200-0.425_C2.00_P1.00_A0.80_PID_OFF
+  12 100.0%  81.66 47.0138  0.0160 0.0388   19.901  0.7920 L0.200-0.475_C2.00_P1.00_A0.80_PID_OFF
+
+Safety policy
+-------------
+path_error_stop_threshold_m: 0.300
+steering_limit_rad: 0.3491
+safe stop published /speed=0 and /steering=0 before/after every run.

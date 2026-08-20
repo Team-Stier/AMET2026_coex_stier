@@ -20,7 +20,7 @@ Current SIM mock-route experiment:
 - planner target speed = 0.80 m/s
 - preview distance = 1.0 m
 - min lookahead = 0.25 m
-- max lookahead = 0.45 m
+- max lookahead = 0.40 m
 - curvature reference = 2.0 1/m
 - maximum lateral acceleration = 0.8 m/s²
 - curvature speed-limit range = 0.30–0.80 m/s
@@ -58,3 +58,23 @@ by `models.py`, `geometry.py`, `path_metrics.py`, `adaptive_policy.py`,
 
 Keep all environment-specific enable/disable parameters and test results documented
 here as the SIM and REAL configurations evolve.
+
+## SIM Autotune Result (2026-08-20)
+
+- 72 experiments
+- 63/63 successful lap experiments
+- `OPTIMUM_CONVERGED`
+- min lookahead 0.25 m
+- max lookahead 0.40 m
+- curvature reference 2.0 1/m
+- preview distance 1.0 m
+- max lateral acceleration 0.8 m/s²
+- longitudinal PID OFF
+- final validation 3/3 laps
+- mean path error ≈ 0.0186 m
+- max path error ≈ 0.0456 m
+- max steering ≈ 19.54 deg
+- steering saturation 0
+
+These results were obtained on the PhysiCar SIM kinematically feasible mock path.
+They must be revalidated on the actual Hybrid A* planner path and the real vehicle.

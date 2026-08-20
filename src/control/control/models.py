@@ -93,7 +93,7 @@ class AdaptiveControlConfig:
     enabled: bool = False
     preview_distance_m: float = 1.0
     min_lookahead_m: float = 0.25
-    max_lookahead_m: float = 0.45
+    max_lookahead_m: float = 0.40
     curvature_reference_inv_m: float = 2.0
     max_lateral_acceleration_m_s2: float = 0.8
     min_speed_limit_m_s: float = 0.30
