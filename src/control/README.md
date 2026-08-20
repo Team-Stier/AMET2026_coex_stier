@@ -1,80 +1,45 @@
-# Control package
+# Control module
 
-This package keeps path-following and longitudinal controller algorithms independent
-of ROS, simulator APIs, and other team packages. ROS and simulator adapters must
-convert their inputs to the plain Python models before calling `ControllerCore`.
+This package provides a ROS-independent `ControllerCore` for vehicle path
+following. ROS nodes and other adapters convert their inputs to the plain Python
+models before calling the controller.
 
-## Control feature defaults
+## Features
 
-REAL baseline:
+- Pure Pursuit lateral control
+- curvature-adaptive lookahead
+- curvature-based speed limiting
+- optional longitudinal PID
+- ROS-independent `ControllerCore`
 
-- `closed_loop = false`
-- PID = false
-- Adaptive Control = false until real validation
+## Current defaults
 
-Current SIM mock-route experiment:
+- lookahead: 0.25–0.40 m
+- preview distance: 1.0 m
+- curvature reference: 2.0 1/m
+- maximum lateral acceleration: 0.8 m/s²
+- adaptive speed range: 0.30–0.80 m/s
+- longitudinal PID: OFF by default
 
-- `closed_loop = true`
-- PID = false
-- Adaptive Control = true for A/B test
-- planner target speed = 0.80 m/s
-- preview distance = 1.0 m
-- min lookahead = 0.25 m
-- max lookahead = 0.40 m
-- curvature reference = 2.0 1/m
-- maximum lateral acceleration = 0.8 m/s²
-- curvature speed-limit range = 0.30–0.80 m/s
+## Controller interface
 
-Adaptive Control computes a stateless preview-path curvature on every update. It
-uses that metric to reduce lookahead and to provide a curvature speed cap. The
-speed policy follows the lateral-acceleration relation and is clamped to the
-configured speed-limit range:
+Call `ControllerCore.update(vehicle_state, path, target_speed, dt)`.
 
-```text
-v_curve = sqrt(max_lateral_acceleration / curvature)
-```
+Inputs:
 
-Near-zero curvature uses the maximum speed limit. The policy is only an upper
-limit and never raises the planner target:
+- `VehicleState`
+- planner path
+- target speed
+- time step `dt`
 
-```text
-effective target speed = min(planner target speed, curvature speed limit)
-```
+Outputs (`ControllerResult`):
 
-For the first speed-policy SIM experiment, the planner target is 0.80 m/s and
-curvature may reduce the command as low as the configured 0.30 m/s limit. The
-0.30 m/s value is an initial SIM experiment parameter, not a fixed minimum speed
-embedded in the controller core. It must be tuned from measured tracking and
-lateral behavior.
+- steering command (`steering_rad`)
+- speed command (`speed_command_m_s`)
 
-## SIM and REAL separation
+The adaptive speed limit is an upper bound and does not raise the planner target
+speed. Enable adaptive control or longitudinal PID through the existing
+`ControllerConfig` policy; the current enable/disable behavior is unchanged.
 
-The SIM mock route is an explicitly closed path and may enable Adaptive Control
-for experimentation. REAL remains open-path, PID-off, and Adaptive-off by default
-until planner/localization interfaces and real-vehicle validation are complete.
-Simulator-only route/pose APIs belong in a future adapter and must not be imported
-by `models.py`, `geometry.py`, `path_metrics.py`, `adaptive_policy.py`,
-`pure_pursuit.py`, `pid.py`, or `controller_core.py`.
-
-Keep all environment-specific enable/disable parameters and test results documented
-here as the SIM and REAL configurations evolve.
-
-## SIM Autotune Result (2026-08-20)
-
-- 72 experiments
-- 63/63 successful lap experiments
-- `OPTIMUM_CONVERGED`
-- min lookahead 0.25 m
-- max lookahead 0.40 m
-- curvature reference 2.0 1/m
-- preview distance 1.0 m
-- max lateral acceleration 0.8 m/s²
-- longitudinal PID OFF
-- final validation 3/3 laps
-- mean path error ≈ 0.0186 m
-- max path error ≈ 0.0456 m
-- max steering ≈ 19.54 deg
-- steering saturation 0
-
-These results were obtained on the PhysiCar SIM kinematically feasible mock path.
-They must be revalidated on the actual Hybrid A* planner path and the real vehicle.
+Revalidate the controller on the final planner path and the real vehicle before
+deployment.
