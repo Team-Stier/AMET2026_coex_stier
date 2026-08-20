@@ -76,6 +76,17 @@ RViz에서 LaserScan, odometry 이동, TF 연결 및 카메라 프레임을 확�
 코스를 최소 두 번 겹쳐 주행하고 시작 구간에서 loop closure가 형성되는지 확인한 후
 지도를 저장한다.
 
+위치가 바뀔 수 있는 시뮬레이터 라바콘을 정적 지도에서 제외할 때는 차량을 먼저
+초기화한 다음, SLAM을 시작하기 전에 다음 명령을 실행한다.
+
+```bash
+./src/calibration/tools/remove_sim_mapping_cones.sh
+```
+
+제거 후 시뮬레이터를 초기화하거나 재시작하면 라바콘이 다시 나타날 수 있다. 제거가
+끝난 뒤에는 다시 초기화하지 않고 바로 SLAM과 bag 기록을 시작한다. 실차에서는 이
+스크립트를 사용하지 않으며, 라바콘을 실시간 obstacle/semantic layer로 처리한다.
+
 ```bash
 ./src/calibration/tools/start_sim_mapping.sh
 ```
@@ -89,6 +100,23 @@ RViz의 fixed frame은 `map`으로 설정한다. 지도 품질을 확인한 뒤 
 
 점유지도뿐 아니라 `slam_toolbox` pose graph 서비스가 사용 가능하면 재편집 가능한
 pose graph도 같은 출력 디렉터리에 저장한다.
+
+### 카메라 텍스처 지도 생성
+
+시뮬레이터 bag의 압축 카메라 영상과 기록된 TF를 사용해 도로 색상과 차선 레이어를
+LiDAR 점유지도 좌표에 투영할 수 있다.
+
+```bash
+python3 src/calibration/tools/build_camera_texture_map.py \
+  records/mapping/<bag-directory> \
+  maps/occupancy/<map-directory>/map.yaml
+```
+
+기본 출력은 `<map-directory>/camera_fusion/` 아래의
+`camera_ground_texture.png`, `camera_lane_layer.png`,
+`lidar_camera_fused.png`다. 이 파일들은 검토 및 차선 캘리브레이션용 RGB 레이어다.
+Nav2 점유확률 지도가 아니므로 주행 지도 로딩에는 기존 `map.yaml`과 `map.pgm`을
+계속 사용한다.
 
 점유지도는 주행 중심선을 직접 제공하지 않는다. 저장된 지도 위에서 진행 방향에 맞게
 중심점을 선택하고, 일정 간격으로 재샘플링한 별도 RDDF를 만든다. RDDF 좌표계와 SLAM
