@@ -17,7 +17,7 @@ if ! command -v ros2 >/dev/null 2>&1; then
     exit 1
 fi
 
-if ! ros2 pkg executables nav2_map_server | grep -q 'map_saver_cli'; then
+if ! ros2 pkg executables nav2_map_server | grep 'map_saver_cli' >/dev/null; then
     echo "error: nav2_map_server map_saver_cli is not installed" >&2
     exit 1
 fi

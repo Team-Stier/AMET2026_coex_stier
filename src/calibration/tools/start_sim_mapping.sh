@@ -22,7 +22,7 @@ if [[ ! -f "$PARAMS_FILE" ]]; then
     exit 1
 fi
 
-if ! ros2 pkg executables slam_toolbox | grep -q 'async_slam_toolbox_node'; then
+if ! ros2 pkg executables slam_toolbox | grep 'async_slam_toolbox_node' >/dev/null; then
     echo "error: slam_toolbox async node is not installed" >&2
     exit 1
 fi

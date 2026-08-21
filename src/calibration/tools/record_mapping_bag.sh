@@ -38,6 +38,7 @@ declare -a topics=(
     "/imu"
     "/camera/image_raw/compressed"
     "/camera/pan"
+    "/mapping/sim_pose"
     "/clock"
     "/tf"
     "/tf_static"
@@ -48,4 +49,5 @@ echo "Keep the camera fixed, drive slowly, revisit the start area, and press Ctr
 
 exec ros2 bag record \
     --output "$output_dir" \
+    --topics \
     "${topics[@]}"

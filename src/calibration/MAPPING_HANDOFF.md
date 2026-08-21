@@ -1,6 +1,21 @@
 # Mapping 작업 인계 요약
 
-마지막 확인: 2026-08-20 (Asia/Seoul)
+마지막 확인: 2026-08-21 (UTC)
+
+## 2026-08-21 Lane Map 재수집 업데이트
+
+첫 2-lap 재수집 `20260821_063600_waypoint_lane_only_2lap`은 실제 주행 오차가 최대
+`0.051 m`로 작았지만 `/odom` yaw가 한 바퀴 복귀 후 약 `168.3°` 달라지고 최종
+`map → odom`도 약 `169.6°` 변했다. 이 bag에서 만든 차선 layer는 비교 기준으로
+사용하지 않는다.
+
+SIM 전용 수집 드라이버가 ground-truth pose를 `/mapping/sim_pose`로 발행하도록 바꾼 뒤
+`20260821_072430_waypoint_lane_groundtruth_2lap` bag을 새로 기록했다. 최종 차선 layer는
+`20260821_072658_waypoint_lane_groundtruth_2lap/camera_lane_accumulation_best/`에 있다.
+0.15–1.8 m ground projection, 최대 TF support age 75 ms를 사용했고 937개 카메라
+frame에서 노란선 3,025 cell과 흰선 14,504 cell을 남겼다. SIM pose의 두 바퀴
+시작·종료 yaw 차이는 약 `0.0019°`였다. 실차에서는 이 SIM 전용 pose source를 사용하지
+않고 timestamp에 맞는 localization/TF를 사용한다.
 
 ## 목표
 

@@ -44,3 +44,21 @@ def test_rejects_image_without_enough_lane_pixels():
     detector = YellowLaneDetector(geometry)
 
     assert detector.detect(image) is None
+
+
+def test_preserves_thin_dashed_yellow_lane():
+    geometry = BevGeometry()
+    image = np.zeros((geometry.height, geometry.width, 3), dtype=np.uint8)
+    x_values = np.linspace(0.3, 2.8, 140)
+    rows, columns = geometry.ground_to_pixel(x_values, np.zeros_like(x_values))
+
+    for index, (row, column) in enumerate(zip(rows, columns)):
+        if (index // 8) % 2 == 0:
+            image[int(round(row)), int(round(column))] = (0, 190, 255)
+
+    detector = YellowLaneDetector(geometry)
+    detection = detector.detect(image)
+
+    assert detection is not None
+    assert detection.confidence > 0.35
+    np.testing.assert_allclose(detection.coefficients, [0.0, 0.0, 0.0], atol=0.02)

@@ -42,9 +42,10 @@ class YellowLaneDetector:
     def create_mask(self, bev_image: np.ndarray) -> np.ndarray:
         hsv = cv2.cvtColor(bev_image, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(hsv, self.hsv_lower, self.hsv_upper)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 3))
+        horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 1))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, vertical_kernel)
+        return cv2.dilate(mask, horizontal_kernel)
 
     def detect(self, bev_image: np.ndarray) -> LaneDetection | None:
         mask = self.create_mask(bev_image)

@@ -20,7 +20,7 @@ calibration_node:
     minimum_lane_points: 30
     minimum_lane_span_m: 0.4
     maximum_lane_residual_m: 0.08
-    minimum_confidence: 0.35
+    minimum_confidence: 0.15
     publish_debug_images: true
     # Leave empty until a measured Lane Map centerline is available.
     reference_centerline_file: ""
