@@ -42,6 +42,22 @@ TEST(ScanToPoints, RejectsInvalidAndOutOfRangeValues)
   EXPECT_TRUE(points.empty());
 }
 
+TEST(ScanToPoints, KeepsFullSensorFieldWhenRoiIsDisabled)
+{
+  ScanFilterConfig config;
+  config.apply_roi = false;
+  config.maximum_range_m = 0.5;
+  config.minimum_forward_x_m = 10.0;
+  config.maximum_absolute_y_m = 0.1;
+
+  const auto points = scan_to_points(
+    std::vector<float>{1.0F}, 3.14159265358979323846, 0.01, 0.1, 16.0, config);
+
+  ASSERT_EQ(points.size(), 1U);
+  EXPECT_NEAR(points[0].x, -1.0, 1.0e-9);
+  EXPECT_NEAR(points[0].y, 0.0, 1.0e-9);
+}
+
 TEST(DbscanLabels, FindsTwoClustersAndNoise)
 {
   const std::vector<Point2D> points{

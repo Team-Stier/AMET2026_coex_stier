@@ -90,13 +90,14 @@ public:
     fitted_circle_marker_topic_ = declare_parameter<std::string>(
       "fitted_circle_marker_topic", "/object_detection/fitted_circles");
 
+    scan_filter_.apply_roi = declare_parameter<bool>("apply_roi", false);
     scan_filter_.minimum_range_m = declare_parameter<double>("minimum_range_m", 0.15);
     scan_filter_.maximum_range_m = declare_parameter<double>("maximum_range_m", 4.0);
     scan_filter_.minimum_forward_x_m =
       declare_parameter<double>("minimum_forward_x_m", 0.0);
     scan_filter_.maximum_absolute_y_m =
       declare_parameter<double>("maximum_absolute_y_m", 1.5);
-    epsilon_m_ = declare_parameter<double>("dbscan_epsilon_m", 0.17);
+    epsilon_m_ = declare_parameter<double>("dbscan_epsilon_m", 0.18);
 
     const auto minimum_samples = declare_parameter<int>("dbscan_minimum_samples", 3);
     const auto minimum_cluster_points = declare_parameter<int>("minimum_cluster_points", 3);
@@ -143,8 +144,9 @@ public:
     RCLCPP_INFO(
       get_logger(),
       "DBSCAN minimum enclosing circle detector ready: "
-      "scan=%s eps=%.3f min_samples=%zu min_cluster_points=%zu markers=%s",
+      "scan=%s eps=%.3f min_samples=%zu min_cluster_points=%zu roi=%s markers=%s",
       scan_topic_.c_str(), epsilon_m_, minimum_samples_, minimum_cluster_points_,
+      scan_filter_.apply_roi ? "on" : "off",
       publish_markers_ ? "on" : "off");
   }
 
@@ -176,7 +178,7 @@ private:
     const auto elapsed = std::chrono::duration<double, std::milli>(
       std::chrono::steady_clock::now() - started);
     RCLCPP_DEBUG(
-      get_logger(), "processed %zu ROI points into %zu objects in %.3f ms",
+      get_logger(), "processed %zu scan points into %zu objects in %.3f ms",
       points.size(), clusters.size(), elapsed.count());
   }
 
@@ -206,7 +208,8 @@ private:
       1U + current_marker_count +
       (previous_marker_count_ > current_marker_count ?
       previous_marker_count_ - current_marker_count : 0U));
-    marker_array.markers.push_back(make_roi_marker(scan));
+    marker_array.markers.push_back(
+      scan_filter_.apply_roi ? make_roi_marker(scan) : make_roi_delete_marker(scan));
 
     for (std::size_t index = 0; index < clusters.size(); ++index) {
       const auto color = color_for_cluster(index);
@@ -397,6 +400,17 @@ private:
           inner_radius * std::sin(second_angle));
       }
     }
+    return marker;
+  }
+
+  visualization_msgs::msg::Marker make_roi_delete_marker(
+    const sensor_msgs::msg::LaserScan & scan) const
+  {
+    visualization_msgs::msg::Marker marker;
+    marker.header = scan.header;
+    marker.ns = kRoiMarkerNamespace;
+    marker.id = 0;
+    marker.action = visualization_msgs::msg::Marker::DELETE;
     return marker;
   }
 

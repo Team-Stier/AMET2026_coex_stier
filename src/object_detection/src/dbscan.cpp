@@ -221,18 +221,24 @@ std::vector<Point2D> scan_to_points(
   double sensor_range_max,
   const ScanFilterConfig & config)
 {
-  validate_scan_config(config);
+  if (config.apply_roi) {
+    validate_scan_config(config);
+  }
   if (!std::isfinite(angle_min) || !std::isfinite(angle_increment) || angle_increment <= 0.0) {
     throw std::invalid_argument("scan angles must be finite with a positive increment");
   }
 
-  double effective_minimum = config.minimum_range_m;
-  double effective_maximum = config.maximum_range_m;
-  if (std::isfinite(sensor_range_min)) {
-    effective_minimum = std::max(effective_minimum, sensor_range_min);
+  double effective_minimum = 0.0;
+  double effective_maximum = std::numeric_limits<double>::infinity();
+  if (std::isfinite(sensor_range_min) && sensor_range_min >= 0.0) {
+    effective_minimum = sensor_range_min;
   }
   if (std::isfinite(sensor_range_max)) {
-    effective_maximum = std::min(effective_maximum, sensor_range_max);
+    effective_maximum = sensor_range_max;
+  }
+  if (config.apply_roi) {
+    effective_minimum = std::max(effective_minimum, config.minimum_range_m);
+    effective_maximum = std::min(effective_maximum, config.maximum_range_m);
   }
   if (effective_maximum <= effective_minimum) {
     return {};
@@ -250,8 +256,8 @@ std::vector<Point2D> scan_to_points(
 
     const double angle = angle_min + static_cast<double>(index) * angle_increment;
     const Point2D point{range_m * std::cos(angle), range_m * std::sin(angle)};
-    if (point.x < config.minimum_forward_x_m ||
-      std::abs(point.y) > config.maximum_absolute_y_m)
+    if (config.apply_roi && (point.x < config.minimum_forward_x_m ||
+      std::abs(point.y) > config.maximum_absolute_y_m))
     {
       continue;
     }

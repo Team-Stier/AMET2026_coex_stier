@@ -21,6 +21,7 @@ struct EnclosingCircle
 
 struct ScanFilterConfig
 {
+  bool apply_roi{true};
   double minimum_range_m{0.15};
   double maximum_range_m{4.0};
   double minimum_forward_x_m{0.0};

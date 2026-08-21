@@ -1,6 +1,6 @@
 # Object detection
 
-`/scan`의 2D LiDAR 점을 전방 관심 영역으로 제한한 뒤 DBSCAN으로 클러스터링한다.
+`/scan`의 전체 360도 유효 2D LiDAR 점을 DBSCAN으로 클러스터링한다.
 크기가 지나치게 큰 클러스터는 벽으로 간주해 제거하고, 가까운 클러스터부터 최대 20개의
 클러스터에 모든 점을 포함하는 최소 크기의 원을 계산한다. 최소 포함 원의 중심점은
 `/object_info`로 발행한다. 반지름은 RViz 시각화에만 사용하며, 반지름이나 피팅 오차를
@@ -18,11 +18,12 @@ ros2 run object_detection object_detection_node
 
 | 파라미터 | 기본값 | 의미 |
 |---|---:|---|
-| `minimum_range_m` | `0.15` | 사용할 최소 LiDAR 거리 |
-| `maximum_range_m` | `4.0` | 사용할 최대 LiDAR 거리 |
-| `minimum_forward_x_m` | `0.0` | 전방 관심 영역의 최소 x |
-| `maximum_absolute_y_m` | `1.5` | 좌우 관심 영역 `|y|` 한계 |
-| `dbscan_epsilon_m` | `0.17` | DBSCAN 이웃 거리 |
+| `apply_roi` | `false` | DBSCAN 전에 거리·전방·좌우 ROI 적용 여부 |
+| `minimum_range_m` | `0.15` | ROI 활성화 시 사용할 최소 LiDAR 거리 |
+| `maximum_range_m` | `4.0` | ROI 활성화 시 사용할 최대 LiDAR 거리 |
+| `minimum_forward_x_m` | `0.0` | ROI 활성화 시 전방 영역의 최소 x |
+| `maximum_absolute_y_m` | `1.5` | ROI 활성화 시 좌우 영역 `|y|` 한계 |
+| `dbscan_epsilon_m` | `0.18` | DBSCAN 이웃 거리 |
 | `dbscan_minimum_samples` | `3` | DBSCAN core point 최소 이웃 수 |
 | `minimum_cluster_points` | `3` | 최종 클러스터가 가져야 할 최소 점 개수 |
 | `maximum_cluster_extent_m` | `0.8` | 이보다 큰 클러스터 제거 |
@@ -45,7 +46,8 @@ ros2 run object_detection object_detection_node --ros-args \
 노드는 기존 클러스터 시각화와 피팅 원 시각화를 서로 다른
 `visualization_msgs/msg/MarkerArray` 토픽으로 발행한다.
 
-- `/object_detection/markers`: 클러스터 점, 최소 포함 원 중심, 청록색 ROI 경계
+- `/object_detection/markers`: 클러스터 점과 최소 포함 원 중심. `apply_roi=true`이면
+  청록색 ROI 경계도 표시
 - `/object_detection/fitted_circles`: 클러스터마다 다른 색의 최소 포함 원
 
 1. RViz의 Fixed Frame을 `lidar_link`로 설정한다.
