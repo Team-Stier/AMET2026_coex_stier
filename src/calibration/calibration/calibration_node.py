@@ -1,21 +1,155 @@
+from __future__ import annotations
+
+import copy
+import math
+from pathlib import Path as FilePath
+
+import cv2
+import numpy as np
 import rclpy
-from nav_msgs.msg import Odometry
+from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import Odometry, Path
+from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+from rclpy.time import Time
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Float64
+from tf2_ros import Buffer, TransformException, TransformListener
+
+from calibration.bev import (
+    BevGeometry,
+    BevProjector,
+    CameraModel,
+    transform_to_matrix,
+)
+from calibration.lane_detector import LaneDetection, YellowLaneDetector
+from calibration.lane_map import (
+    load_lane_reference_image,
+    polyline_reference,
+    transform_reference,
+)
+from calibration.odom_corrector import (
+    LaneOdomCorrector,
+    load_centerline_csv,
+)
+from calibration.pose_geometry import (
+    transform_from_local_correction,
+    transform_pose_2d,
+)
 
 
 class CalibrationNode(Node):
     def __init__(self):
         super().__init__("calibration_node")
+        self._declare_parameters()
+
+        self.base_frame = self.get_parameter("base_frame").value
+        self.camera_frame = self.get_parameter("camera_frame").value
+        self.frame_step = int(self.get_parameter("frame_step").value)
+        self.tf_timeout = Duration(
+            seconds=float(self.get_parameter("tf_timeout_sec").value)
+        )
+        self.maximum_camera_tf_age_sec = float(
+            self.get_parameter("maximum_camera_tf_age_sec").value
+        )
+        self.minimum_confidence = float(
+            self.get_parameter("minimum_confidence").value
+        )
+        self.publish_debug_images = bool(
+            self.get_parameter("publish_debug_images").value
+        )
+        self.reference_frame = self.get_parameter("reference_frame").value
+        self.maximum_detection_age_sec = float(
+            self.get_parameter("maximum_detection_age_sec").value
+        )
+
+        camera = CameraModel(
+            width=int(self.get_parameter("camera_width").value),
+            height=int(self.get_parameter("camera_height").value),
+            horizontal_fov_rad=float(
+                self.get_parameter("horizontal_fov_rad").value
+            ),
+            distortion=tuple(float(value) for value in self.get_parameter("distortion").value),
+        )
+        geometry = BevGeometry(
+            x_min_m=float(self.get_parameter("bev_x_min_m").value),
+            x_max_m=float(self.get_parameter("bev_x_max_m").value),
+            y_left_m=float(self.get_parameter("bev_y_left_m").value),
+            y_right_m=float(self.get_parameter("bev_y_right_m").value),
+            resolution_m=float(self.get_parameter("bev_resolution_m").value),
+            ground_z_m=float(self.get_parameter("ground_z_m").value),
+        )
+        self.projector = BevProjector(camera, geometry)
+        self.detector = YellowLaneDetector(
+            geometry=geometry,
+            hsv_lower=tuple(
+                int(value) for value in self.get_parameter("yellow_hsv_lower").value
+            ),
+            hsv_upper=tuple(
+                int(value) for value in self.get_parameter("yellow_hsv_upper").value
+            ),
+            minimum_points=int(self.get_parameter("minimum_lane_points").value),
+            minimum_span_m=float(self.get_parameter("minimum_lane_span_m").value),
+            minimum_component_area_px=int(
+                self.get_parameter("minimum_lane_component_area_px").value
+            ),
+            point_spacing_m=float(self.get_parameter("observed_point_spacing_m").value),
+        )
+        self.corrector = LaneOdomCorrector(
+            maximum_match_distance_m=float(
+                self.get_parameter("maximum_match_distance_m").value
+            ),
+            minimum_matches=int(self.get_parameter("minimum_correction_matches").value),
+            maximum_lateral_correction_m=float(
+                self.get_parameter("maximum_lateral_correction_m").value
+            ),
+            maximum_yaw_correction_rad=float(
+                self.get_parameter("maximum_yaw_correction_rad").value
+            ),
+            smoothing_alpha=float(self.get_parameter("correction_smoothing_alpha").value),
+            local_fit_radius_m=float(self.get_parameter("local_fit_radius_m").value),
+            minimum_local_fit_points=int(
+                self.get_parameter("minimum_local_fit_points").value
+            ),
+            maximum_tangent_angle_difference_rad=float(
+                self.get_parameter("maximum_tangent_angle_difference_rad").value
+            ),
+        )
+        self.reference_lane = self._load_reference_lane()
+
+        self.tf_buffer = Buffer(cache_time=Duration(seconds=5.0))
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.frame_count = 0
+        self.latest_odometry = None
+        self.latest_camera_pan = None
+        self.latest_lane_points = None
+        self.latest_lane_stamp = None
+        self.last_processed_lane_stamp = None
+        self.last_odom_time_sec = None
+        self.persistent_odom_correction = (0.0, 0.0, 0.0)
+
         self.calibrated_odom_pub = self.create_publisher(
             Odometry, "/odom/calibride", 10
         )
+        self.centerline_pub = self.create_publisher(
+            Path, "/calibration/detected_centerline", 10
+        )
+        self.bev_pub = self.create_publisher(
+            CompressedImage, "/calibration/debug/bev/compressed", 1
+        )
+        self.mask_pub = self.create_publisher(
+            CompressedImage, "/calibration/debug/lane_mask/compressed", 1
+        )
+        self.overlay_pub = self.create_publisher(
+            CompressedImage, "/calibration/debug/lane_overlay/compressed", 1
+        )
+
+        image_topic = self.get_parameter("image_topic").value
         self.image_sub = self.create_subscription(
             CompressedImage,
-            "/camera/image_raw/compressed",
+            image_topic,
             self.on_image,
             qos_profile_sensor_data,
         )
@@ -25,15 +159,342 @@ class CalibrationNode(Node):
         self.camera_pan_sub = self.create_subscription(
             Float64, "/camera/pan", self.on_camera_pan, 10
         )
-        self.latest_camera_pan = None
+        correction_state = "enabled" if self.reference_lane is not None else "fallback"
+        self.get_logger().info(f"BEV lane detection ready; odom correction mode={correction_state}")
 
-    def on_image(self, image: CompressedImage) -> None:
-        self.get_logger().debug(f"received image stamp {image.header.stamp}")
+    def _declare_parameters(self) -> None:
+        self.declare_parameter("image_topic", "/camera/image_raw/compressed")
+        self.declare_parameter("base_frame", "base_footprint")
+        self.declare_parameter("camera_frame", "camera_optical_frame")
+        self.declare_parameter("camera_width", 480)
+        self.declare_parameter("camera_height", 360)
+        self.declare_parameter("horizontal_fov_rad", 1.7453)
+        self.declare_parameter(
+            "distortion", [-0.045, -0.0001, -0.0003, -0.0001, 0.001]
+        )
+        self.declare_parameter("frame_step", 3)
+        self.declare_parameter("tf_timeout_sec", 0.05)
+        self.declare_parameter("maximum_camera_tf_age_sec", 0.05)
+        self.declare_parameter("bev_x_min_m", 0.15)
+        self.declare_parameter("bev_x_max_m", 1.5)
+        self.declare_parameter("bev_y_left_m", 1.2)
+        self.declare_parameter("bev_y_right_m", 1.2)
+        self.declare_parameter("bev_resolution_m", 0.02)
+        self.declare_parameter("ground_z_m", 0.0)
+        self.declare_parameter("yellow_hsv_lower", [15, 30, 30])
+        self.declare_parameter("yellow_hsv_upper", [31, 220, 220])
+        self.declare_parameter("minimum_lane_points", 12)
+        self.declare_parameter("minimum_lane_span_m", 0.3)
+        self.declare_parameter("minimum_lane_component_area_px", 4)
+        self.declare_parameter("observed_point_spacing_m", 0.04)
+        self.declare_parameter("minimum_confidence", 0.20)
+        self.declare_parameter("publish_debug_images", True)
+        self.declare_parameter("reference_lane_map_file", "")
+        self.declare_parameter("reference_lane_map_resolution_m", 0.01)
+        self.declare_parameter("reference_lane_map_origin_x_m", 0.0)
+        self.declare_parameter("reference_lane_map_origin_y_m", 0.0)
+        self.declare_parameter("reference_lane_map_hsv_lower", [14, 135, 145])
+        self.declare_parameter("reference_lane_map_hsv_upper", [32, 255, 255])
+        self.declare_parameter("reference_lane_point_spacing_m", 0.02)
+        self.declare_parameter("reference_lane_tangent_radius_m", 0.10)
+        self.declare_parameter("reference_centerline_file", "")
+        self.declare_parameter("reference_frame", "map")
+        self.declare_parameter("maximum_detection_age_sec", 0.30)
+        self.declare_parameter("maximum_match_distance_m", 0.35)
+        self.declare_parameter("minimum_correction_matches", 8)
+        self.declare_parameter("maximum_lateral_correction_m", 0.20)
+        self.declare_parameter("maximum_yaw_correction_rad", 0.12)
+        self.declare_parameter("correction_smoothing_alpha", 0.25)
+        self.declare_parameter("local_fit_radius_m", 0.20)
+        self.declare_parameter("minimum_local_fit_points", 3)
+        self.declare_parameter("maximum_tangent_angle_difference_rad", 0.44)
+
+    @staticmethod
+    def _resolve_reference_path(value: str) -> FilePath:
+        path = FilePath(value).expanduser()
+        if path.is_absolute():
+            return path
+        source_package_root = FilePath(__file__).resolve().parents[1]
+        candidates = [FilePath.cwd() / path, source_package_root / path]
+        try:
+            from ament_index_python.packages import get_package_share_directory
+
+            candidates.append(FilePath(get_package_share_directory("calibration")) / path)
+        except (ImportError, LookupError):
+            pass
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate.resolve()
+        return (source_package_root / path).resolve()
+
+    def _load_reference_lane(self):
+        map_value = str(self.get_parameter("reference_lane_map_file").value)
+        if map_value:
+            path = self._resolve_reference_path(map_value)
+            try:
+                reference = load_lane_reference_image(
+                    str(path),
+                    resolution_m=float(
+                        self.get_parameter("reference_lane_map_resolution_m").value
+                    ),
+                    origin_x_m=float(
+                        self.get_parameter("reference_lane_map_origin_x_m").value
+                    ),
+                    origin_y_m=float(
+                        self.get_parameter("reference_lane_map_origin_y_m").value
+                    ),
+                    hsv_lower=tuple(
+                        int(value)
+                        for value in self.get_parameter(
+                            "reference_lane_map_hsv_lower"
+                        ).value
+                    ),
+                    hsv_upper=tuple(
+                        int(value)
+                        for value in self.get_parameter(
+                            "reference_lane_map_hsv_upper"
+                        ).value
+                    ),
+                    point_spacing_m=float(
+                        self.get_parameter("reference_lane_point_spacing_m").value
+                    ),
+                    tangent_radius_m=float(
+                        self.get_parameter("reference_lane_tangent_radius_m").value
+                    ),
+                )
+            except (OSError, ValueError) as error:
+                self.get_logger().error(
+                    f"failed to load lane map '{path}': {error}; correction disabled"
+                )
+                return None
+            self.get_logger().info(
+                f"loaded {len(reference.points)} geometric lane-map points from {path}"
+            )
+            return reference
+
+        csv_value = str(self.get_parameter("reference_centerline_file").value)
+        if not csv_value:
+            self.get_logger().warning(
+                "reference_lane_map_file is empty; publishing unmodified /odom"
+            )
+            return None
+        path = self._resolve_reference_path(csv_value)
+        try:
+            reference = polyline_reference(load_centerline_csv(str(path)))
+        except (OSError, ValueError) as error:
+            self.get_logger().error(
+                f"failed to load centerline '{path}': {error}; correction disabled"
+            )
+            return None
+        self.get_logger().info(
+            f"loaded {len(reference.points)} legacy centerline points from {path}"
+        )
+        return reference
+
+    def on_image(self, image_message: CompressedImage) -> None:
+        self.frame_count += 1
+        if self.frame_step > 1 and (self.frame_count - 1) % self.frame_step != 0:
+            return
+
+        encoded = np.frombuffer(image_message.data, dtype=np.uint8)
+        image = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+        if image is None:
+            self.get_logger().warning("failed to decode compressed camera image")
+            return
+
+        try:
+            transform = self._lookup_camera_transform(image_message.header.stamp)
+            bev = self.projector.project(
+                image, transform_to_matrix(transform.transform)
+            )
+        except (TransformException, ValueError) as error:
+            self.get_logger().warning(
+                f"skipping camera frame because BEV transform failed: {error}",
+                throttle_duration_sec=2.0,
+            )
+            return
+
+        detection = self.detector.detect(bev)
+        if detection is not None and detection.confidence >= self.minimum_confidence:
+            self.latest_lane_points = detection.points_m
+            self.latest_lane_stamp = image_message.header.stamp
+            self.centerline_pub.publish(
+                self._create_centerline_path(image_message, detection)
+            )
+
+        if self.publish_debug_images:
+            mask = detection.mask if detection is not None else self.detector.create_mask(bev)
+            overlay = self.detector.draw_overlay(bev, detection)
+            self._publish_compressed(self.bev_pub, image_message, bev)
+            self._publish_compressed(self.mask_pub, image_message, mask)
+            self._publish_compressed(self.overlay_pub, image_message, overlay)
+
+    def _lookup_camera_transform(self, stamp):
+        try:
+            return self.tf_buffer.lookup_transform(
+                self.camera_frame,
+                self.base_frame,
+                Time.from_msg(stamp),
+                timeout=self.tf_timeout,
+            )
+        except TransformException as exact_error:
+            latest = self.tf_buffer.lookup_transform(
+                self.camera_frame,
+                self.base_frame,
+                Time(),
+                timeout=self.tf_timeout,
+            )
+            age = self._stamp_seconds(stamp) - self._stamp_seconds(latest.header.stamp)
+            if (
+                self.maximum_camera_tf_age_sec >= 0.0
+                and abs(age) > self.maximum_camera_tf_age_sec
+            ):
+                raise exact_error
+            return latest
+
+    def _create_centerline_path(
+        self, image_message: CompressedImage, detection: LaneDetection
+    ) -> Path:
+        path = Path()
+        path.header.stamp = image_message.header.stamp
+        path.header.frame_id = self.base_frame
+        points = detection.points_m[np.argsort(detection.points_m[:, 0])]
+        if len(points) > 80:
+            indices = np.linspace(0, len(points) - 1, 80).round().astype(int)
+            points = points[indices]
+        for x_m, y_m in points:
+            pose = PoseStamped()
+            pose.header = path.header
+            pose.pose.position.x = float(x_m)
+            pose.pose.position.y = float(y_m)
+            pose.pose.orientation.w = 1.0
+            path.poses.append(pose)
+        return path
+
+    @staticmethod
+    def _publish_compressed(
+        publisher, source_message: CompressedImage, image: np.ndarray
+    ) -> None:
+        # Lossless debug output keeps HSV values identical to the image used by
+        # the detector; JPEG artifacts otherwise make threshold tuning misleading.
+        success, encoded = cv2.imencode(".png", image)
+        if not success:
+            return
+        message = CompressedImage()
+        message.header = source_message.header
+        message.format = "png"
+        message.data = encoded.tobytes()
+        publisher.publish(message)
 
     def on_odometry(self, odometry: Odometry) -> None:
-        self.get_logger().debug(f"received odometry stamp {odometry.header.stamp}")
+        self.latest_odometry = odometry
+        output = copy.deepcopy(odometry)
+        odom_time_sec = self._stamp_seconds(odometry.header.stamp)
+        if (
+            self.last_odom_time_sec is not None
+            and odom_time_sec + 1.0e-6 < self.last_odom_time_sec
+        ):
+            self.persistent_odom_correction = (0.0, 0.0, 0.0)
+            self.last_processed_lane_stamp = None
+            self.corrector.reset()
+            self.get_logger().warning(
+                "odometry time moved backwards; cleared persistent lane correction"
+            )
+        self.last_odom_time_sec = odom_time_sec
+
+        correction = None
+        lane_stamp = self._stamp_key(self.latest_lane_stamp)
+        if lane_stamp is not None and lane_stamp != self.last_processed_lane_stamp:
+            correction = self._estimate_odometry_correction(odometry)
+            self.last_processed_lane_stamp = lane_stamp
+        if correction is not None:
+            raw_pose = self._pose_2d(odometry.pose.pose)
+            self.persistent_odom_correction = transform_from_local_correction(
+                raw_pose,
+                correction.lateral_m,
+                correction.yaw_rad,
+            )
+
+        raw_pose = self._pose_2d(odometry.pose.pose)
+        corrected_pose = transform_pose_2d(
+            raw_pose, self.persistent_odom_correction
+        )
+        pose = output.pose.pose
+        pose.position.x = corrected_pose[0]
+        pose.position.y = corrected_pose[1]
+        pose.orientation.x = 0.0
+        pose.orientation.y = 0.0
+        pose.orientation.z = math.sin(corrected_pose[2] * 0.5)
+        pose.orientation.w = math.cos(corrected_pose[2] * 0.5)
+        self.calibrated_odom_pub.publish(output)
+
+    def _estimate_odometry_correction(self, odometry: Odometry):
+        if self.reference_lane is None or self.latest_lane_points is None:
+            return None
+        age = self._stamp_seconds(odometry.header.stamp) - self._stamp_seconds(
+            self.latest_lane_stamp
+        )
+        if age < 0.0 or age > self.maximum_detection_age_sec:
+            return None
+
+        odom_frame = odometry.header.frame_id or "odom"
+        if self.reference_frame == odom_frame:
+            reference_odom = self.reference_lane
+        else:
+            try:
+                transform = self.tf_buffer.lookup_transform(
+                    odom_frame,
+                    self.reference_frame,
+                    Time.from_msg(odometry.header.stamp),
+                    timeout=self.tf_timeout,
+                )
+                reference_odom = transform_reference(
+                    self.reference_lane,
+                    transform_to_matrix(transform.transform),
+                )
+            except (TransformException, ValueError) as error:
+                self.get_logger().warning(
+                    f"centerline transform failed; publishing raw odom: {error}",
+                    throttle_duration_sec=2.0,
+                )
+                return None
+
+        pose = odometry.pose.pose
+        return self.corrector.estimate(
+            self.latest_lane_points,
+            reference_odom,
+            pose.position.x,
+            pose.position.y,
+            self._yaw_from_quaternion(pose.orientation),
+        )
+
+    @staticmethod
+    def _yaw_from_quaternion(quaternion) -> float:
+        return math.atan2(
+            2.0 * (quaternion.w * quaternion.z + quaternion.x * quaternion.y),
+            1.0 - 2.0 * (quaternion.y * quaternion.y + quaternion.z * quaternion.z),
+        )
+
+    @classmethod
+    def _pose_2d(cls, pose) -> tuple[float, float, float]:
+        return (
+            float(pose.position.x),
+            float(pose.position.y),
+            cls._yaw_from_quaternion(pose.orientation),
+        )
+
+    @staticmethod
+    def _stamp_key(stamp):
+        if stamp is None:
+            return None
+        return int(stamp.sec), int(stamp.nanosec)
+
+    @staticmethod
+    def _stamp_seconds(stamp) -> float:
+        return float(stamp.sec) + float(stamp.nanosec) * 1e-9
 
     def on_camera_pan(self, camera_pan: Float64) -> None:
+        # Geometry uses timestamped TF. This command is retained only for diagnostics.
         self.latest_camera_pan = camera_pan.data
 
 
