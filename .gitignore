@@ -22,3 +22,7 @@ compile_commands.json
 .idea/
 *.swp
 .DS_Store
+
+# ROS bag recordings
+records/mapping/
+src/calibration/rosbags/
