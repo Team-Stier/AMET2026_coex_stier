@@ -40,6 +40,8 @@ class PoseCorrectionEkf:
         self.output_state: np.ndarray | None = None
         self.covariance = np.diag([0.04, 0.04, 0.03]).astype(np.float64)
         self.previous_raw_pose: np.ndarray | None = None
+        self.last_innovation = np.full(3, np.nan, dtype=np.float64)
+        self.last_gain_diagonal = np.full(3, np.nan, dtype=np.float64)
 
     @staticmethod
     def _planar_covariance(values) -> np.ndarray | None:
@@ -182,6 +184,8 @@ class PoseCorrectionEkf:
             ).T
         except np.linalg.LinAlgError:
             return
+        self.last_innovation = innovation.copy()
+        self.last_gain_diagonal = np.diag(gain).copy()
         self.state = self.state + gain @ innovation
         self.state[2] = normalize_angle(float(self.state[2]))
         identity = np.eye(3, dtype=np.float64)

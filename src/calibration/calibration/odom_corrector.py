@@ -17,6 +17,18 @@ class CorrectionResult:
     match_count: int
 
 
+@dataclass(frozen=True)
+class MatchDiagnostics:
+    observed_odom: np.ndarray
+    matched_points: np.ndarray
+    observed_directions: np.ndarray
+    matched_tangents: np.ndarray
+    distances_m: np.ndarray
+    tangent_angle_rad: np.ndarray
+    keep: np.ndarray
+    residual_m: np.ndarray
+
+
 def load_centerline_csv(path: str) -> np.ndarray:
     """Load an ordered centerline stored as two CSV columns: x,y."""
     points = []
@@ -98,10 +110,12 @@ class LaneOdomCorrector:
         )
         self._filtered_lateral = 0.0
         self._filtered_yaw = 0.0
+        self.last_diagnostics: MatchDiagnostics | None = None
 
     def reset(self) -> None:
         self._filtered_lateral = 0.0
         self._filtered_yaw = 0.0
+        self.last_diagnostics = None
 
     def estimate(
         self,
@@ -111,6 +125,7 @@ class LaneOdomCorrector:
         odom_y: float,
         odom_yaw: float,
     ) -> CorrectionResult | None:
+        self.last_diagnostics = None
         if isinstance(reference_odom, np.ndarray):
             reference = polyline_reference(reference_odom)
         else:
@@ -157,6 +172,7 @@ class LaneOdomCorrector:
             tangent_alignment = np.abs(
                 np.sum(observed_directions * matched_tangents, axis=1)
             )
+            tangent_angle = np.arccos(np.clip(tangent_alignment, 0.0, 1.0))
             minimum_alignment = np.cos(self.maximum_tangent_angle_difference_rad)
             keep = (
                 (distances <= self.maximum_match_distance_m)
@@ -165,6 +181,16 @@ class LaneOdomCorrector:
             )
             match_count = int(np.count_nonzero(keep))
             if match_count < self.minimum_matches:
+                self.last_diagnostics = MatchDiagnostics(
+                    observed_odom=observed.copy(),
+                    matched_points=reference.points[nearest].copy(),
+                    observed_directions=observed_directions.copy(),
+                    matched_tangents=matched_tangents.copy(),
+                    distances_m=distances.copy(),
+                    tangent_angle_rad=tangent_angle.copy(),
+                    keep=keep.copy(),
+                    residual_m=np.empty(0, dtype=np.float64),
+                )
                 return None
 
             observed_kept = observed[keep]
@@ -207,6 +233,17 @@ class LaneOdomCorrector:
             )
             if float(np.linalg.norm(increment)) < 1.0e-5:
                 break
+
+        self.last_diagnostics = MatchDiagnostics(
+            observed_odom=observed.copy(),
+            matched_points=reference.points[nearest].copy(),
+            observed_directions=observed_directions.copy(),
+            matched_tangents=matched_tangents.copy(),
+            distances_m=distances.copy(),
+            tangent_angle_rad=tangent_angle.copy(),
+            keep=keep.copy(),
+            residual_m=residual.copy(),
+        )
 
         alpha = self.smoothing_alpha
         self._filtered_lateral = (1.0 - alpha) * self._filtered_lateral + alpha * lateral

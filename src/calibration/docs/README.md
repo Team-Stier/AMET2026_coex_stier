@@ -14,6 +14,10 @@
 - `sim_lane_map_calibration.md`: 생성 방법과 TF 사용 원칙
 - `ekf_waypoint_error_over_time.png`: 전체 localization bag의 시간별 waypoint 경로 오차
 - `ekf_waypoint_error_over_time.json`: RAW/EKF 오차 통계와 평가 표본 수
+- `calibration_stage_analysis/ANALYSIS.md`: rosbag 기반 검출부터 EKF까지 단계별 진단 결과
+- `calibration_stage_analysis/*.csv`: 프레임·매칭·pose 단위 원시 진단 데이터
+- `calibration_stage_analysis/01_*.png` ~ `08_*.png`: 단계별 시각화
+- `calibration_stage_analysis/initial_lateral_only_experiment/`: 초기 60초 yaw-off 분리 실험
 
 `sim_lane_map_world_color.png`는 카메라 중앙선 매칭용이다. Nav2 또는 LiDAR SLAM의
 occupancy map으로 사용하지 않는다.

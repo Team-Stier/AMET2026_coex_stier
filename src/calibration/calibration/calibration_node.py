@@ -147,6 +147,12 @@ class CalibrationNode(Node):
         self.latest_camera_pan = None
         self.latest_lane_points = None
         self.latest_lane_stamp = None
+        self.latest_detection = None
+        self.latest_bev = None
+        self.latest_source_image = None
+        self.latest_correction = None
+        self.latest_measurement_pose = None
+        self.latest_correction_stamp = None
         self.last_processed_lane_stamp = None
         self.last_odom_time_sec = None
 
@@ -345,6 +351,9 @@ class CalibrationNode(Node):
             return
 
         detection = self.detector.detect(bev)
+        self.latest_source_image = image
+        self.latest_bev = bev
+        self.latest_detection = detection
         if detection is not None and detection.confidence >= self.minimum_confidence:
             self.latest_lane_points = detection.points_m
             self.latest_lane_stamp = image_message.header.stamp
@@ -457,6 +466,9 @@ class CalibrationNode(Node):
                 correction.yaw_rad,
             )
             measured_pose = transform_pose_2d(raw_pose, measurement_transform)
+            self.latest_correction = correction
+            self.latest_measurement_pose = measured_pose
+            self.latest_correction_stamp = odometry.header.stamp
             self.correction_ekf.correct(
                 measured_pose,
                 rms_error_m=correction.rms_error_m,
