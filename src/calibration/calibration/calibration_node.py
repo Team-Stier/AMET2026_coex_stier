@@ -25,6 +25,7 @@ from calibration.bev import (
     transform_to_matrix,
 )
 from calibration.lane_detector import LaneDetection, YellowLaneDetector
+from calibration.correction_ekf import PoseCorrectionEkf
 from calibration.lane_map import (
     load_lane_reference_image,
     polyline_reference,
@@ -117,6 +118,26 @@ class CalibrationNode(Node):
                 self.get_parameter("maximum_tangent_angle_difference_rad").value
             ),
         )
+        self.correction_ekf = PoseCorrectionEkf(
+            process_position_variance_per_sec=float(
+                self.get_parameter("correction_ekf_process_position_variance_per_sec").value
+            ),
+            process_yaw_variance_per_sec=float(
+                self.get_parameter("correction_ekf_process_yaw_variance_per_sec").value
+            ),
+            minimum_measurement_position_variance=float(
+                self.get_parameter("correction_ekf_minimum_position_variance").value
+            ),
+            measurement_yaw_variance=float(
+                self.get_parameter("correction_ekf_measurement_yaw_variance").value
+            ),
+            maximum_output_position_rate_m_s=float(
+                self.get_parameter("maximum_correction_position_rate_m_s").value
+            ),
+            maximum_output_yaw_rate_rad_s=float(
+                self.get_parameter("maximum_correction_yaw_rate_rad_s").value
+            ),
+        )
         self.reference_lane = self._load_reference_lane()
 
         self.tf_buffer = Buffer(cache_time=Duration(seconds=5.0))
@@ -128,7 +149,6 @@ class CalibrationNode(Node):
         self.latest_lane_stamp = None
         self.last_processed_lane_stamp = None
         self.last_odom_time_sec = None
-        self.persistent_odom_correction = (0.0, 0.0, 0.0)
 
         self.calibrated_odom_pub = self.create_publisher(
             Odometry, "/odom/calibride", 10
@@ -205,6 +225,16 @@ class CalibrationNode(Node):
         self.declare_parameter("maximum_lateral_correction_m", 0.20)
         self.declare_parameter("maximum_yaw_correction_rad", 0.12)
         self.declare_parameter("correction_smoothing_alpha", 0.25)
+        self.declare_parameter(
+            "correction_ekf_process_position_variance_per_sec", 0.0025
+        )
+        self.declare_parameter(
+            "correction_ekf_process_yaw_variance_per_sec", 0.0016
+        )
+        self.declare_parameter("correction_ekf_minimum_position_variance", 0.0025)
+        self.declare_parameter("correction_ekf_measurement_yaw_variance", 0.0076)
+        self.declare_parameter("maximum_correction_position_rate_m_s", 0.08)
+        self.declare_parameter("maximum_correction_yaw_rate_rad_s", 0.08)
         self.declare_parameter("local_fit_radius_m", 0.20)
         self.declare_parameter("minimum_local_fit_points", 3)
         self.declare_parameter("maximum_tangent_angle_difference_rad", 0.44)
@@ -390,17 +420,30 @@ class CalibrationNode(Node):
         self.latest_odometry = odometry
         output = copy.deepcopy(odometry)
         odom_time_sec = self._stamp_seconds(odometry.header.stamp)
+        previous_odom_time_sec = self.last_odom_time_sec
         if (
-            self.last_odom_time_sec is not None
-            and odom_time_sec + 1.0e-6 < self.last_odom_time_sec
+            previous_odom_time_sec is not None
+            and odom_time_sec + 1.0e-6 < previous_odom_time_sec
         ):
-            self.persistent_odom_correction = (0.0, 0.0, 0.0)
             self.last_processed_lane_stamp = None
             self.corrector.reset()
+            self.correction_ekf.reset()
             self.get_logger().warning(
                 "odometry time moved backwards; cleared persistent lane correction"
             )
+            previous_odom_time_sec = None
         self.last_odom_time_sec = odom_time_sec
+
+        raw_pose = self._pose_2d(odometry.pose.pose)
+        dt_sec = 0.0
+        if previous_odom_time_sec is not None:
+            dt_sec = max(0.0, odom_time_sec - previous_odom_time_sec)
+        self.correction_ekf.predict(
+            raw_pose,
+            dt_sec,
+            pose_covariance=odometry.pose.covariance,
+            twist_covariance=odometry.twist.covariance,
+        )
 
         correction = None
         lane_stamp = self._stamp_key(self.latest_lane_stamp)
@@ -408,17 +451,19 @@ class CalibrationNode(Node):
             correction = self._estimate_odometry_correction(odometry)
             self.last_processed_lane_stamp = lane_stamp
         if correction is not None:
-            raw_pose = self._pose_2d(odometry.pose.pose)
-            self.persistent_odom_correction = transform_from_local_correction(
+            measurement_transform = transform_from_local_correction(
                 raw_pose,
                 correction.lateral_m,
                 correction.yaw_rad,
             )
-
-        raw_pose = self._pose_2d(odometry.pose.pose)
-        corrected_pose = transform_pose_2d(
-            raw_pose, self.persistent_odom_correction
-        )
+            measured_pose = transform_pose_2d(raw_pose, measurement_transform)
+            self.correction_ekf.correct(
+                measured_pose,
+                rms_error_m=correction.rms_error_m,
+                match_count=correction.match_count,
+            )
+        self.correction_ekf.advance_output(dt_sec)
+        corrected_pose = self.correction_ekf.output_pose or raw_pose
         pose = output.pose.pose
         pose.position.x = corrected_pose[0]
         pose.position.y = corrected_pose[1]
@@ -426,6 +471,19 @@ class CalibrationNode(Node):
         pose.orientation.y = 0.0
         pose.orientation.z = math.sin(corrected_pose[2] * 0.5)
         pose.orientation.w = math.cos(corrected_pose[2] * 0.5)
+        posterior_covariance = self.correction_ekf.output_covariance()
+        planar_indices = (0, 1, 5)
+        covariance = list(output.pose.covariance)
+        for index in planar_indices:
+            for column in range(6):
+                covariance[index * 6 + column] = 0.0
+                covariance[column * 6 + index] = 0.0
+        for row_index, row in enumerate(planar_indices):
+            for column_index, column in enumerate(planar_indices):
+                covariance[row * 6 + column] = float(
+                    posterior_covariance[row_index, column_index]
+                )
+        output.pose.covariance = covariance
         self.calibrated_odom_pub.publish(output)
 
     def _estimate_odometry_correction(self, odometry: Odometry):

@@ -46,7 +46,7 @@ ros2 launch calibration sim_localization_rviz.launch.py
 
 RViz 표시는 빨강 `RAW`, 청록 `CORRECTED`, 초록 `TRUTH`이며 각 라벨에 실제 위치
 기준 거리·yaw 오차가 표시된다. 자홍색 점은 현재 카메라에서 검출한 중앙선이다.
-지도 배경은 `0.05m` 간격으로 표시하지만 노란 중앙선은 누락되지 않도록 원본 지도
+지도 배경은 `0.02m` 간격으로 표시하지만 노란 중앙선은 누락되지 않도록 원본 지도
 해상도인 `0.01m` 간격의 모든 픽셀을 별도 레이어로 표시한다.
 브리지는 시작 순간의 시뮬 실제 pose만 이용해 고정 `map→odom`을 초기화한다. 이후
 실제 pose는 비교 표시에만 사용하며 보정 계산에는 입력하지 않는다.
@@ -93,8 +93,15 @@ timestamp의 `base_footprint → camera_optical_frame` TF를 사용한다.
 맵 좌표는 `sim_world` 기준 오른쪽 `+x`, 위쪽 `+y`다. 설정의 `reference_frame`은
 `map`이므로 실행 중 timestamp에 맞는 `odom ← map` TF가 반드시 있어야 한다.
 이 TF는 SLAM 또는 별도의 초기 정렬 노드가 제공해야 한다. 첫 유효 보정 전에는 원본
-`/odom`을 발행한다. 한 번 유효한 보정을 얻으면 그 값을 고정 SE(2) 변환으로 저장해
-다음 보정이 들어올 때까지 계속 적용하며, 시뮬 시간이 되감길 때만 초기화한다.
+`/odom`을 발행한다. 첫 유효 보정 이후에는 보정 pose EKF가 odom의 상대 이동량으로
+상태를 예측하고 차선 매칭 pose로 상태를 갱신한다. 출력 pose는 EKF 추정값까지 위치
+`0.08m/s`, yaw `0.08rad/s` 이하로 접근하므로 새 측정 순간에 순간이동하지 않는다.
+차선 측정이 끊겨도 마지막 보정 상태에서 odom 이동량만 계속 적용하며, 시뮬 시간이
+되감길 때만 초기화한다.
+초기 EKF 공분산은 첫 `/odom.pose.covariance`의 x·y·yaw 블록에서 가져오고, 이후
+process noise는 `/odom.twist.covariance`를 `dt²`로 적분한 값과 YAML noise floor를
+합쳐 계산한다. `/odom/calibride.pose.covariance`에는 EKF posterior와 rate-limit으로
+아직 적용되지 않은 보정 잔여량을 함께 반영한다.
 
 기존 순서형 CSV는 `reference_lane_map_file`을 비웠을 때만 fallback으로 사용할 수
 있다.

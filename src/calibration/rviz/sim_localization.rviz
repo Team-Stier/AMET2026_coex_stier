@@ -78,6 +78,18 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /calibration/rviz/truth_path
+    - Class: rviz_default_plugins/Path
+      Color: 255; 220; 0
+      Enabled: true
+      Line Style: Lines
+      Line Width: 0.06
+      Name: Waypoint Reference Path
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /calibration/rviz/waypoint_path
   Global Options:
     Background Color: 35; 35; 35
     Fixed Frame: map

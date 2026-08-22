@@ -1,0 +1,19 @@
+{
+  "reference": "669 simulator route waypoints",
+  "metric": "nearest closed waypoint-route segment distance",
+  "sample_count": 13418,
+  "duration_sec": 447.26,
+  "raw": {
+    "mean_m": 0.09841485504970773,
+    "rmse_m": 0.1339894462122587,
+    "p95_m": 0.309845916566012,
+    "max_m": 0.502580744925604
+  },
+  "ekf_corrected": {
+    "mean_m": 0.09667360479609399,
+    "rmse_m": 0.12416023321781113,
+    "p95_m": 0.26915170029327795,
+    "max_m": 0.4462678699850898
+  },
+  "rmse_improvement_percent": 7.335811343586473
+}

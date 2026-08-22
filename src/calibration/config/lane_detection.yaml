@@ -43,7 +43,16 @@ calibration_node:
     minimum_correction_matches: 8
     maximum_lateral_correction_m: 0.20
     maximum_yaw_correction_rad: 0.12
-    correction_smoothing_alpha: 0.25
+    # EKF performs temporal fusion; keep the geometric measurement unsmoothed.
+    correction_smoothing_alpha: 1.0
+    # Minimum process-noise floor. Dynamic Q also integrates /odom twist covariance.
+    correction_ekf_process_position_variance_per_sec: 0.0025
+    correction_ekf_process_yaw_variance_per_sec: 0.0016
+    correction_ekf_minimum_position_variance: 0.0025
+    correction_ekf_measurement_yaw_variance: 0.0076
+    # Even after an EKF update, expose correction gradually to prevent teleporting.
+    maximum_correction_position_rate_m_s: 0.08
+    maximum_correction_yaw_rate_rad_s: 0.08
     # Fit short observed sections independently, then compare with map tangents.
     local_fit_radius_m: 0.20
     minimum_local_fit_points: 3

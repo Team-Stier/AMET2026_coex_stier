@@ -12,6 +12,8 @@
 - `sim_lane_map_calibration.json`: homography, 축, 해상도와 정합 오차
 - `sim_lane_map_cone_reference.json`: 캡처 당시 cone의 `sim_world` 좌표
 - `sim_lane_map_calibration.md`: 생성 방법과 TF 사용 원칙
+- `ekf_waypoint_error_over_time.png`: 전체 localization bag의 시간별 waypoint 경로 오차
+- `ekf_waypoint_error_over_time.json`: RAW/EKF 오차 통계와 평가 표본 수
 
 `sim_lane_map_world_color.png`는 카메라 중앙선 매칭용이다. Nav2 또는 LiDAR SLAM의
 occupancy map으로 사용하지 않는다.
@@ -22,6 +24,18 @@ occupancy map으로 사용하지 않는다.
 - waypoint 계산은 이미지 픽셀이 아니라 원본 `/sim/api/route` 좌표를 사용한다.
 - 최종 컬러 지도에서 HSV로 노란/주황 중앙선만 추출해 매칭한다.
 - world, map, odom 좌표를 동일하다고 가정하지 않는다.
+
+## EKF waypoint 경로 오차
+
+`ekf_waypoint_error_over_time.png`는 669개 waypoint 폐곡선을 기준으로 동일 timestamp의
+원본 `/odom`과 EKF `/odom/calibride` 위치에서 가장 가까운 경로 선분까지의 거리를
+비교한다. waypoint는 명령 기준 경로이며 실제 차량 ground-truth pose는 아니므로,
+이 결과는 절대 위치 정확도가 아니라 기준 경로에 대한 횡방향 정합 성능을 뜻한다.
+
+전체 bag의 13,418쌍에서 RAW RMSE는 `0.134m`, EKF RMSE는 `0.124m`로 약 `7.3%`
+감소했다. P95는 `0.310m → 0.269m`, 최대값은 `0.503m → 0.446m`로 감소했다.
+다만 시작 구간에는 EKF 오차가 RAW보다 큰 구간이 있으므로 초기 공분산과 측정 잡음은
+추가 튜닝 대상이다.
 
 ## RViz 보정 비교
 

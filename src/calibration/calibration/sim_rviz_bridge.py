@@ -36,7 +36,7 @@ class SimRvizBridge(Node):
         self.declare_parameter("map_resolution_m", 0.01)
         self.declare_parameter("map_origin_x_m", 0.0)
         self.declare_parameter("map_origin_y_m", 0.0)
-        self.declare_parameter("map_marker_resolution_m", 0.05)
+        self.declare_parameter("map_marker_resolution_m", 0.02)
         self.declare_parameter("map_lane_hsv_lower", [14, 135, 145])
         self.declare_parameter("map_lane_hsv_upper", [32, 255, 255])
         self.declare_parameter("sim_state_url", "http://localhost/sim/api/state")
