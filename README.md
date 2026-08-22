@@ -15,6 +15,11 @@ cd /home/physicar/physicar_ws
 - 차량의 진행 방향 `+x`
 - 진행 방향의 왼쪽 `+y`
 
+### 차량 제원
+
+- 크기: 폭 200 mm × 길이 280 mm
+- 휠베이스: 0.18 m
+
 ## 패키지 구조 설계
 
 - 각 패키지의 소스 코드, 설정, 모델, 테스트 및 패키지 전용 실행 스크립트는 반드시
@@ -38,6 +43,7 @@ src/
 ├── traffic_light/
 ├── calibration/
 ├── path_planning/
+├── rddf_visualizer/
 └── control/
 ```
 
@@ -80,6 +86,25 @@ flowchart TD
     end
 
     rddf("rddf") --> PATH_PLANNING
+
+    subgraph Visualization[Visualization]
+        RDDF_VISUALIZER(("RDDF Visualizer Node"))
+        RDDF_CENTERLINE["/rddf/centerline<br/>================<br/>nav_msgs/Path"]
+        RDDF_INNER["/rddf/inner_boundary<br/>================<br/>nav_msgs/Path"]
+        RDDF_OUTER["/rddf/outer_boundary<br/>================<br/>nav_msgs/Path"]
+        EGO_MARKER["/rddf/ego_marker<br/>================<br/>visualization_msgs/Marker"]
+        SCAN_SIM["/rddf/scan_sim<br/>================<br/>sensor_msgs/PointCloud2"]
+        SCAN_ODOM["/rddf/scan_odom<br/>================<br/>sensor_msgs/PointCloud2"]
+    end
+    rddf --> RDDF_VISUALIZER
+    ODOM --> RDDF_VISUALIZER
+    LIDAR --> RDDF_VISUALIZER
+    RDDF_VISUALIZER --> RDDF_CENTERLINE
+    RDDF_VISUALIZER --> RDDF_INNER
+    RDDF_VISUALIZER --> RDDF_OUTER
+    RDDF_VISUALIZER --> EGO_MARKER
+    RDDF_VISUALIZER --> SCAN_SIM
+    RDDF_VISUALIZER --> SCAN_ODOM
 
     subgraph Control[Control]
         CONTROL_PID(("Control Node"))
@@ -137,6 +162,7 @@ Sensor and control topic contracts follow the
 - **Traffic Light Node**: `/camera/image_raw/compressed`의 카메라 영상에서 `yolo`를 이용해 신호등을 판독하고, 결과를 `/gosign`으로 발행한다. 발행 이후 이 노드는 즉시 종료된다. 실행 환경에 `yolo`sw가 설치 되어 있으므로 개발시 참고하도록 한다.
 - **Calibration Node**: 카메라 영상을 `/camera/pan`으로 보정 후, 카메라 이미지에 인식된 중앙차선을 로컬 좌표계의 rddf에 피팅한다. 피팅 결과를 바탕으로 `/odom`을 보정한다. 보정 결과를 `/odom/calibride`로 발행한다.
 - **Path Planning Node**: RDDF 경로와 `/odom`, `/odom/calibride`, `/object_info`를 이용해 주행 가능한 경로를 계획하고 `/path`로 발행한다.
+- **RDDF Visualizer Node**: 세 RDDF CSV와 차량 Marker를 발행하고, `/scan`을 SIM API pose 및 `/odom` pose로 각각 투영한 비교용 PointCloud2를 발행한다.
 - **Control Node**: `/path`와 `/gosign`을 바탕으로 차량의 속도, 조향각, 카메라 팬 각도를 계산해 각각의 제어 토픽으로 발행한다.
 
 ### Topics
@@ -144,7 +170,7 @@ Sensor and control topic contracts follow the
 - **`/scan`** (`sensor_msgs/LaserScan`): LiDAR가 측정한 각도별 거리 데이터. Object Detection Node의 입력으로 사용한다.
 - **`/camera/image_raw/compressed`** (`sensor_msgs/CompressedImage`): JPEG 형식의 압축 카메라 영상. Traffic Light Node와 Calibration Node가 구독한다.
 - **`/odom`** (`nav_msgs/Odometry`): LiDAR와 IMU를 융합해 추정한 차량의 위치, 자세 및 속도 정보. Path Planning Node와 Calibration Node의 입력으로 사용한다.
-- **`/object_info`** (`interfaces/msg/Objects`): Object Detection Node가 생성한 장애물 탐지 결과. 원으로 피팅된 장애물의 중심점의 리스트이다.
+- **`/object_info`** (`interfaces/msg/Objects`): Object Detection Node가 생성한 장애물 탐지 결과. 장애물 중심점은 뒤 차축 중심 기준 차량 로컬 좌표이며 `+x`는 전방, `+y`는 좌측이다. LiDAR 장착 오프셋은 Object Detection Node가 반영한다.
 ```cpp
 // interfaces/msg/Objects.msg
 std_msgs/Header header
@@ -156,9 +182,41 @@ float32[20] y
 - **`/gosign`** (`std_msgs/Bool`): 신호등 인식 결과에 따른 진행 가능 여부. `true`는 진행 가능, `false`는 정지로 사용한다.
 - **`/odom/calibride`** (`nav_msgs/Odometry`): Calibration Node가 카메라 팬 방향 등을 반영해 보정한 odometry 정보.
 - **`/path`** (`nav_msgs/Path`): Path Planning Node가 생성한 차량 주행 경로. Control Node의 입력으로 사용한다.
+- **`/rddf/centerline`** (`nav_msgs/Path`): RDDF 기준 중앙선의 RViz 시각화 경로.
+- **`/rddf/inner_boundary`** (`nav_msgs/Path`): RDDF 안쪽 경계선의 RViz 시각화 경로.
+- **`/rddf/outer_boundary`** (`nav_msgs/Path`): RDDF 바깥쪽 경계선의 RViz 시각화 경로.
+- **`/rddf/ego_marker`** (`visualization_msgs/Marker`): `/odom`의 뒷바퀴 중심 pose와 중심이 일치하는 차량 크기 Marker.
+- **`/rddf/scan_sim`** (`sensor_msgs/PointCloud2`): SIM API가 있을 때만 world pose로 `map`에 투영하는 디버깅용 GT 점군.
+- **`/rddf/scan_odom`** (`sensor_msgs/PointCloud2`): SIM API와 무관하게 `/scan`과 `/odom`만 사용해 `odom` 프레임에 투영한 최신 LiDAR 점군.
 - **`/speed`** (`std_msgs/Float64`): 차량의 목표 속도 명령. 단위는 m/s이다.
 - **`/steering`** (`std_msgs/Float64`): 차량의 목표 조향각 명령. 단위는 rad이며 양수는 좌회전을 의미한다.
 - **`/camera/pan`** (`std_msgs/Float64`): 카메라의 목표 팬 각도 명령. 단위는 rad이며 양수는 왼쪽 회전을 의미한다. 실제 서보 위치 피드백이 아니라 명령값이다.
+
+#### 기본 토픽 발행 주기
+
+아래 값은 PhysiCar SIM의 명목 주기와 2026-08-22에 단일 구독자로 10초간 측정한
+실시간 발행률이다. 시뮬레이터 부하와 RTF에 따라 실측값은 달라질 수 있다.
+
+| 토픽 | 역할 | 명목 주기 | 실측 주기 |
+|---|---|---:|---:|
+| `/camera/image_raw` | 원본 카메라 | 약 15 Hz | 9.56 Hz (원본 영상 수신 드롭 포함) |
+| `/camera/image_raw/compressed` | 압축 카메라 | 약 15 Hz | 14.34 Hz |
+| `/imu` | 가속도·각속도 | 50 Hz | 46.74 Hz |
+| `/imu/mag` | 자기장 | 50 Hz | 46.97 Hz |
+| `/joint_states` | 조향·바퀴·카메라 관절 | 200 Hz | 187.19 Hz |
+| `/scan` | 원본 LiDAR | 10 Hz | 9.39 Hz |
+| `/scan_filtered` | 필터링 LiDAR | 10 Hz | 9.39 Hz |
+| `/odom/laser` | LiDAR odometry | 10 Hz | 9.39 Hz |
+| `/odom` | LiDAR와 IMU를 융합한 EKF odometry | 30 Hz | 28.19 Hz |
+| `/battery_state` | 배터리 상태 | 1 Hz | 1.00 Hz |
+| `/diagnostics` | EKF 진단 | 약 1 Hz | 0.94 Hz |
+| `/tf` | EKF와 관절의 동적 좌표변환 합계 | 약 50 msg/s | 47.02 msg/s |
+| `/clock` | 시뮬레이션 시간(SIM 전용) | 200 Hz | 186.48 Hz |
+
+`/tf_static`과 `/robot_description`은 시작 시 발행되며 고정 주기가 없다. `/rosout`과
+`/parameter_events`는 이벤트 기반이고, `/cmd_vel`, `/speed`, `/steering`,
+`/camera/pan`, `/camera/tilt`는 제어 명령이 들어올 때 발행된다. 실차의 RPLIDAR C1
+`/scan` 주기는 하드웨어 회전속도에 따라 8–12 Hz 범위이며 일반값은 10 Hz이다.
 
 ### External inputs and outputs
 
@@ -191,6 +249,7 @@ ros2 run object_detection object_detection_node
 ros2 run traffic_light traffic_light_node
 ros2 run calibration calibration_node
 ros2 run path_planning path_planning_node
+ros2 run rddf_visualizer rddf_visualizer_node
 ros2 run control control_node
 ```
 
@@ -207,3 +266,12 @@ ros2 run control control_node
 ./src/path_planning/launch.sh
 ./src/control/launch.sh
 ```
+
+RDDF 경로, 차량 Marker, `/scan`이 미리 추가된 RViz는 다음 명령으로 노드와 함께 실행한다.
+
+```bash
+ros2 launch rddf_visualizer rddf_visualizer.launch.py
+```
+
+같은 launch를 비시뮬레이션 환경에서 사용해도 된다. SIM API 확인이 100 ms 안에
+실패하면 GT와 `map→odom` 디버깅만 즉시 비활성화되고 나머지 발행은 계속된다.

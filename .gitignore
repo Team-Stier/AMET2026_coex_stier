@@ -22,3 +22,9 @@ compile_commands.json
 .idea/
 *.swp
 .DS_Store
+
+# Generated code knowledge graph
+/graphify-out/
+
+# Local PhysiCar app state
+/app.physicar
