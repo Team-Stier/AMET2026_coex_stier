@@ -21,14 +21,22 @@
 
 ## 모델
 
-기본 배포 모델은 다음 디렉터리에 있습니다.
+동일한 `best.pt`에서 입력 크기만 다르게 export한 NCNN 모델 3개를 제공합니다.
+재학습한 모델 3개가 아닙니다.
 
-```text
-models/traffic_light_yolo26n-3/deploy/best_ncnn_model
-```
+| 디렉터리 | 고정 입력 크기 | 용도 |
+| --- | --- | --- |
+| `traffic_light_640_ncnn_model` | `640x640` | 정확도 우선 |
+| `traffic_light_384_ncnn_model` | `384x384` | 속도와 정확도의 균형, 기본값 |
+| `traffic_light_320_ncnn_model` | `320x320` | 속도 우선 |
 
-클래스 ID는 `0: red`, `1: yellow`, `2: green`입니다. 노드 시작 시 모델의
-클래스 구성이 다르면 실행을 중단합니다.
+모델은 `models/traffic_light_yolo26n-3/deploy` 아래에 설치됩니다. 클래스 ID는
+`0: red`, `1: yellow`, `2: green`입니다. 노드 시작 시 모델의 클래스 구성이
+다르면 실행을 중단합니다.
+
+입력 크기는 선택한 모델의 `metadata.yaml`에서 자동으로 읽습니다. 고정 크기와
+다른 `image_size`를 지정하면 NCNN segmentation fault를 방지하기 위해 노드가
+추론 전에 오류를 출력하고 종료합니다.
 
 ## 빌드 및 테스트
 
@@ -61,6 +69,44 @@ Python 실행 의존성이 준비됐는지는 다음 명령으로 확인할 수 
 ```bash
 python3 -c "import cv2, ncnn, numpy, ultralytics; print('dependencies OK')"
 ```
+
+설치된 모델은 다음 명령으로 확인합니다.
+
+```bash
+model_root="$(ros2 pkg prefix --share traffic_light)/models/traffic_light_yolo26n-3/deploy"
+find "$model_root" -maxdepth 1 -type d -name '*_ncnn_model' -printf '%f\n' | sort
+```
+
+## 모델 선택
+
+노드를 실행할 때 모델 하나를 선택하며 실행 중에는 교체하지 않습니다. 다른
+모델을 시험하려면 노드를 `Ctrl+C`로 종료한 뒤 다시 실행합니다.
+
+기본 모델인 `traffic_light_384_ncnn_model`은 `model_path` 없이 실행할 수
+있습니다.
+
+```bash
+ros2 run traffic_light traffic_light_node --ros-args -r /gosign:=/traffic_light_test/gosign
+```
+
+정확도 우선인 `traffic_light_640_ncnn_model`을 선택하려면 다음과 같이
+실행합니다.
+
+```bash
+model_root="$(ros2 pkg prefix --share traffic_light)/models/traffic_light_yolo26n-3/deploy"
+ros2 run traffic_light traffic_light_node --ros-args -p "model_path:=${model_root}/traffic_light_640_ncnn_model" -r /gosign:=/traffic_light_test/gosign
+```
+
+속도 우선인 `traffic_light_320_ncnn_model`을 선택하려면 디렉터리 이름만
+바꿉니다.
+
+```bash
+model_root="$(ros2 pkg prefix --share traffic_light)/models/traffic_light_yolo26n-3/deploy"
+ros2 run traffic_light traffic_light_node --ros-args -p "model_path:=${model_root}/traffic_light_320_ncnn_model" -r /gosign:=/traffic_light_test/gosign
+```
+
+명령을 여러 줄로 작성할 때는 `\` 뒤에 공백을 넣지 않습니다. 복사 과정에서
+줄바꿈 오류가 발생하기 쉬우므로 위의 한 줄 실행 명령을 권장합니다.
 
 ## 카메라 입력 확인
 
@@ -128,6 +174,32 @@ ros2 run rqt_image_view rqt_image_view
 시각화에는 박스 그리기와 JPEG 인코딩 비용이 추가됩니다. 실제 Raspberry Pi 5
 주행에서는 검증이 끝난 뒤 시각화를 끄는 것을 권장합니다.
 
+입력과 추론·시각화 속도를 비교할 때는 각각 별도 터미널에서 실행합니다.
+
+```bash
+ros2 topic hz /camera/image_raw/compressed
+ros2 topic hz /traffic_light/debug/compressed
+ros2 topic hz /traffic_light_test/gosign
+```
+
+`traffic_light_640_ncnn_model`, `traffic_light_384_ncnn_model`,
+`traffic_light_320_ncnn_model` 순서로 바꿔가며 Hz뿐 아니라 멀리 있는 작은
+신호등의 검출 여부도 함께 확인합니다.
+
+### 입력 크기 오류
+
+NCNN 모델은 디렉터리별 고정 입력 크기를 사용합니다. 예를 들어
+`traffic_light_640_ncnn_model`에 `-p image_size:=384`를 함께 지정할 수
+없습니다. 평소에는 `image_size`를 생략하고 모델 메타데이터를 자동
+사용합니다.
+
+선택한 모델 크기는 시작 로그와 다음 파일에서 확인할 수 있습니다.
+
+```bash
+model_root="$(ros2 pkg prefix --share traffic_light)/models/traffic_light_yolo26n-3/deploy"
+sed -n '/imgsz:/,+2p' "$model_root/traffic_light_384_ncnn_model/metadata.yaml"
+```
+
 ## 실제 `/gosign` 발행
 
 안전한 테스트가 끝난 뒤 remap 없이 실행하면 `control` 패키지가 구독하는
@@ -144,9 +216,9 @@ ros2 run traffic_light traffic_light_node
 
 | 파라미터 | 기본값 | 설명 |
 | --- | --- | --- |
-| `model_path` | 설치된 NCNN 모델 경로 | 사용할 모델 디렉터리 |
+| `model_path` | 설치된 `traffic_light_384_ncnn_model` 경로 | 사용할 고정 크기 NCNN 모델 디렉터리 |
 | `confidence` | `0.5` | 검출 confidence 기준값 |
-| `image_size` | `640` | YOLO 입력 이미지 크기 |
+| `image_size` | `0` | `0`이면 모델 메타데이터 자동 사용. 지정 시 모델 크기와 같아야 함 |
 | `green_confirm_frames` | `3` | 주행 허용에 필요한 연속 초록 프레임 수 |
 | `image_timeout_seconds` | `1.0` | 카메라 입력 중단 판정 시간 |
 | `visualizer_enabled` | `false` | 디버그 이미지 발행 여부 |
