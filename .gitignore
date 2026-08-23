@@ -28,3 +28,10 @@ compile_commands.json
 
 # Local PhysiCar app state
 /app.physicar
+
+# Local calibration recordings
+/records/calibration/**/*.mcap
+/records/calibration/*.tar.gz
+
+# 뭐여
+/AMET2026_coex_stier/

@@ -1,0 +1,31 @@
+path_planning_node:
+  ros__parameters:
+    rddf_file: "rddf/rddf.csv"
+    use_calibride_odom: false
+    vehicle_width_m: 0.20
+    vehicle_length_m: 0.28
+    wheelbase_m: 0.18
+    wheel_track_m: 0.2
+    obstacle_inflation_radius_m: 0.5
+    track_margin_m: 0.3
+    track_lookup_resolution_m: 0.05
+    planning_rate_hz: 3.0
+    publish_search_tree_debug: true
+    planning_horizon_m: 8.0
+    local_path_length_m: 3.0
+    xy_resolution_m: 0.05
+    yaw_resolution_deg: 5.0
+    collision_check_step_m: 0.025
+    motion_primitive_length_m: 0.20
+    max_steering_angle_deg: 30.0
+    steering_sample_count: 5
+    progress_resolution_m: 0.10
+    goal_longitudinal_tolerance_m: 0.15
+    goal_yaw_tolerance_deg: 20.0
+    progress_regression_tolerance_m: 0.05
+    max_progress_advance_ratio: 3.0
+    max_search_nodes: 100000
+    max_speed_mps: 1.5
+    max_lateral_accel_mps2: 1.5
+    w_curvature: 1.0
+    w_curvature_change: 0.2

@@ -53,10 +53,15 @@ trap cleanup EXIT INT TERM
 start_node() {
     local package_name=$1
     local executable=$2
-    local mode=${3:-persistent}
+    shift 2
+
+    local mode=${1:-persistent}
+    if (($# > 0)); then
+        shift
+    fi
 
     echo "[bringup] starting $package_name/$executable"
-    ros2 run "$package_name" "$executable" &
+    ros2 run "$package_name" "$executable" "$@" &
     PIDS+=("$!")
     NODE_NAMES+=("$package_name/$executable")
     NODE_MODES+=("$mode")
@@ -66,8 +71,16 @@ start_node() {
 start_node "object_detection" "object_detection_node"
 start_node "traffic_light" "traffic_light_node" "oneshot"
 start_node "calibration" "calibration_node"
-start_node "path_planning" "path_planning_node"
+start_node "path_planning" "path_planning_node" "persistent" \
+    --ros-args --params-file \
+    "${WORKSPACE_ROOT}/install/path_planning/share/path_planning/config/path_planning.yaml"
 start_node "control" "control_node"
+
+echo "[bringup] starting rddf_visualizer launch"
+ros2 launch rddf_visualizer rddf_visualizer.launch.py &
+PIDS+=("$!")
+NODE_NAMES+=("rddf_visualizer launch")
+NODE_MODES+=("persistent")
 
 echo "[bringup] all nodes started"
 

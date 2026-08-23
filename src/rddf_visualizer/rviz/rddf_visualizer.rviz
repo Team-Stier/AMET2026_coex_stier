@@ -53,6 +53,22 @@ Visualization Manager:
         Value: /rddf/outer_boundary
       Value: true
     - Alpha: 1
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 0; 128; 255
+      Enabled: true
+      Line Style: Lines
+      Line Width: 0.06
+      Name: Planned Path (SIM GT)
+      Pose Style: None
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /rddf/path_sim
+      Value: true
+    - Alpha: 1
       Class: rviz_default_plugins/PointCloud2
       Color: 0; 255; 255
       Color Transformer: FlatColor
@@ -92,6 +108,26 @@ Visualization Manager:
         Value: /rddf/scan_odom
       Use Fixed Frame: true
       Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/PointCloud2
+      Color: 0; 255; 0
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Name: Scan (Laser Odom Only)
+      Position Transformer: XYZ
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.02
+      Style: Points
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /rddf/scan_odom_laser
+      Use Fixed Frame: true
+      Value: true
     - Class: rviz_default_plugins/Marker
       Enabled: true
       Topic:
@@ -99,11 +135,63 @@ Visualization Manager:
         Durability Policy: Transient Local
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /rddf/ego_marker
-      Name: Ego Vehicle
+        Value: /rddf/ego_marker_sim
+      Name: Ego Vehicle (SIM API)
       Namespaces:
         ego: true
       Queue Size: 100
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /rddf/ego_marker_odom
+      Name: Ego Vehicle (Odom)
+      Namespaces:
+        ego: true
+      Queue Size: 100
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /rddf/ego_marker_odom_laser
+      Name: Ego Vehicle (Laser Odom)
+      Namespaces:
+        ego: true
+      Queue Size: 100
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /path_planning/debug/search_tree_marker
+      Name: Search Tree
+      Namespaces:
+        search_tree: true
+      Queue Size: 1
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /path_planning/debug/search_tree_final_path_marker
+      Name: Search Tree Final Path
+      Namespaces:
+        search_tree_final_path: true
+      Queue Size: 1
       Value: true
   Enabled: true
   Global Options:

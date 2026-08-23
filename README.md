@@ -65,6 +65,7 @@ flowchart TD
         LIDAR["/scan<br/>================<br/>sensor_msgs/LaserScan"]
         IMAGE["/camera/image_raw/compressed<br/>================<br/>sensor_msgs/CompressedImage"]
         ODOM["/odom<br/>================<br/>nav_msgs/Odometry"]
+        ODOM_LASER["/odom/laser<br/>================<br/>nav_msgs/Odometry"]
     end
 
     %% Perception nodes and topics
@@ -92,19 +93,26 @@ flowchart TD
         RDDF_CENTERLINE["/rddf/centerline<br/>================<br/>nav_msgs/Path"]
         RDDF_INNER["/rddf/inner_boundary<br/>================<br/>nav_msgs/Path"]
         RDDF_OUTER["/rddf/outer_boundary<br/>================<br/>nav_msgs/Path"]
-        EGO_MARKER["/rddf/ego_marker<br/>================<br/>visualization_msgs/Marker"]
+        EGO_SIM["/rddf/ego_marker_sim<br/>================<br/>visualization_msgs/Marker"]
+        EGO_ODOM["/rddf/ego_marker_odom<br/>================<br/>visualization_msgs/Marker"]
+        EGO_ODOM_LASER["/rddf/ego_marker_odom_laser<br/>================<br/>visualization_msgs/Marker"]
         SCAN_SIM["/rddf/scan_sim<br/>================<br/>sensor_msgs/PointCloud2"]
         SCAN_ODOM["/rddf/scan_odom<br/>================<br/>sensor_msgs/PointCloud2"]
+        SCAN_ODOM_LASER["/rddf/scan_odom_laser<br/>================<br/>sensor_msgs/PointCloud2"]
     end
     rddf --> RDDF_VISUALIZER
     ODOM --> RDDF_VISUALIZER
     LIDAR --> RDDF_VISUALIZER
+    ODOM_LASER --> RDDF_VISUALIZER
     RDDF_VISUALIZER --> RDDF_CENTERLINE
     RDDF_VISUALIZER --> RDDF_INNER
     RDDF_VISUALIZER --> RDDF_OUTER
-    RDDF_VISUALIZER --> EGO_MARKER
+    RDDF_VISUALIZER --> EGO_SIM
+    RDDF_VISUALIZER --> EGO_ODOM
+    RDDF_VISUALIZER --> EGO_ODOM_LASER
     RDDF_VISUALIZER --> SCAN_SIM
     RDDF_VISUALIZER --> SCAN_ODOM
+    RDDF_VISUALIZER --> SCAN_ODOM_LASER
 
     subgraph Control[Control]
         CONTROL_PID(("Control Node"))
@@ -162,7 +170,7 @@ Sensor and control topic contracts follow the
 - **Traffic Light Node**: `/camera/image_raw/compressed`의 카메라 영상에서 `yolo`를 이용해 신호등을 판독하고, 결과를 `/gosign`으로 발행한다. 발행 이후 이 노드는 즉시 종료된다. 실행 환경에 `yolo`sw가 설치 되어 있으므로 개발시 참고하도록 한다.
 - **Calibration Node**: 카메라 영상을 `/camera/pan`으로 보정 후, 카메라 이미지에 인식된 중앙차선을 로컬 좌표계의 rddf에 피팅한다. 피팅 결과를 바탕으로 `/odom`을 보정한다. 보정 결과를 `/odom/calibride`로 발행한다.
 - **Path Planning Node**: RDDF 경로와 `/odom`, `/odom/calibride`, `/object_info`를 이용해 주행 가능한 경로를 계획하고 `/path`로 발행한다.
-- **RDDF Visualizer Node**: 세 RDDF CSV와 차량 Marker를 발행하고, `/scan`을 SIM API pose 및 `/odom` pose로 각각 투영한 비교용 PointCloud2를 발행한다.
+- **RDDF Visualizer Node**: 세 RDDF CSV와 SIM API, `/odom`, `/odom/laser` 기반 차량 Marker와 비교용 PointCloud2를 발행하고, 로컬 `/path`를 SIM GT 차량 pose 기준 `map` 경로로 변환한다.
 - **Control Node**: `/path`와 `/gosign`을 바탕으로 차량의 속도, 조향각, 카메라 팬 각도를 계산해 각각의 제어 토픽으로 발행한다.
 
 ### Topics
@@ -182,12 +190,16 @@ float32[20] y
 - **`/gosign`** (`std_msgs/Bool`): 신호등 인식 결과에 따른 진행 가능 여부. `true`는 진행 가능, `false`는 정지로 사용한다.
 - **`/odom/calibride`** (`nav_msgs/Odometry`): Calibration Node가 카메라 팬 방향 등을 반영해 보정한 odometry 정보.
 - **`/path`** (`nav_msgs/Path`): Path Planning Node가 생성한 차량 주행 경로. Control Node의 입력으로 사용한다.
+- **`/rddf/path_sim`** (`nav_msgs/Path`): 로컬 `/path`를 SIM API GT 차량 pose 기준으로 `map`에 직접 투영한 디버깅 경로.
 - **`/rddf/centerline`** (`nav_msgs/Path`): RDDF 기준 중앙선의 RViz 시각화 경로.
 - **`/rddf/inner_boundary`** (`nav_msgs/Path`): RDDF 안쪽 경계선의 RViz 시각화 경로.
 - **`/rddf/outer_boundary`** (`nav_msgs/Path`): RDDF 바깥쪽 경계선의 RViz 시각화 경로.
-- **`/rddf/ego_marker`** (`visualization_msgs/Marker`): `/odom`의 뒷바퀴 중심 pose와 중심이 일치하는 차량 크기 Marker.
+- **`/rddf/ego_marker_sim`** (`visualization_msgs/Marker`): SIM API GT pose 기반 청록색 차량 Marker.
+- **`/rddf/ego_marker_odom`** (`visualization_msgs/Marker`): `/odom` pose 기반 빨간색 차량 Marker.
+- **`/rddf/ego_marker_odom_laser`** (`visualization_msgs/Marker`): `/odom/laser` pose 기반 초록색 차량 Marker.
 - **`/rddf/scan_sim`** (`sensor_msgs/PointCloud2`): SIM API가 있을 때만 world pose로 `map`에 투영하는 디버깅용 GT 점군.
 - **`/rddf/scan_odom`** (`sensor_msgs/PointCloud2`): SIM API와 무관하게 `/scan`과 `/odom`만 사용해 `odom` 프레임에 투영한 최신 LiDAR 점군.
+- **`/rddf/scan_odom_laser`** (`sensor_msgs/PointCloud2`): SIM API와 무관하게 `/scan`과 `/odom/laser`만 사용해 `odom` 프레임에 투영한 최신 LiDAR 점군.
 - **`/speed`** (`std_msgs/Float64`): 차량의 목표 속도 명령. 단위는 m/s이다.
 - **`/steering`** (`std_msgs/Float64`): 차량의 목표 조향각 명령. 단위는 rad이며 양수는 좌회전을 의미한다.
 - **`/camera/pan`** (`std_msgs/Float64`): 카메라의 목표 팬 각도 명령. 단위는 rad이며 양수는 왼쪽 회전을 의미한다. 실제 서보 위치 피드백이 아니라 명령값이다.
