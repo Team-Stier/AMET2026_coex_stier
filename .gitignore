@@ -27,3 +27,4 @@ compile_commands.json
 records/mapping/
 records/calibration/
 src/calibration/rosbags/
+src/calibration/rosbag/

@@ -26,9 +26,9 @@ fi
 
 declare -A required_types=(
     ["/scan"]="sensor_msgs/msg/LaserScan"
+    ["/scan_filtered"]="sensor_msgs/msg/LaserScan"
     ["/odom"]="nav_msgs/msg/Odometry"
     ["/odom/laser"]="nav_msgs/msg/Odometry"
-    ["/camera/image_raw/compressed"]="sensor_msgs/msg/CompressedImage"
     ["/sim/ground_truth/tf"]="tf2_msgs/msg/TFMessage"
 )
 
@@ -65,16 +65,9 @@ declare -a topics=(
     "/tf"
     "/tf_static"
 
-    # Sensors and calibration intermediate outputs.
+    # Other vehicle state useful for timestamp and motion diagnostics.
     "/imu"
-    "/camera/image_raw/compressed"
-    "/camera/pan"
-    "/camera/tilt"
     "/joint_states"
-    "/calibration/detected_centerline"
-    "/calibration/debug/bev/compressed"
-    "/calibration/debug/lane_mask/compressed"
-    "/calibration/debug/lane_overlay/compressed"
 
     # Simulation time and commands make the run reproducible.
     "/clock"
@@ -90,7 +83,7 @@ echo
 echo "Odometry identity"
 echo "  /odom                       fused EKF odometry"
 echo "  /odom/laser                 LiDAR-only odometry"
-echo "  /odom/calibride             lane-corrected odometry"
+echo "  /odom/calibride             fence-corrected odometry"
 echo "  /sim/ground_truth/tf        simulator absolute world truth"
 echo "  /sim/ground_truth/odometry  simulator local ground-truth odometry"
 echo

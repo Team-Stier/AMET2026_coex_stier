@@ -6,7 +6,7 @@
 |---|---|---|
 | `/odom` | `nav_msgs/msg/Odometry` | `ekf_filter_node` fused odometry |
 | `/odom/laser` | `nav_msgs/msg/Odometry` | `laser_odom` LiDAR odometry |
-| `/odom/calibride` | `nav_msgs/msg/Odometry` | lane-corrected output under test |
+| `/odom/calibride` | `nav_msgs/msg/Odometry` | fence-corrected output under test |
 | `/sim/ground_truth/tf` | `tf2_msgs/msg/TFMessage` | simulator absolute world pose |
 | `/sim/ground_truth/odometry` | `nav_msgs/msg/Odometry` | simulator local truth pose and twist |
 | `/scan` | `sensor_msgs/msg/LaserScan` | raw LiDAR ranges in `lidar_link` |
@@ -29,10 +29,10 @@ source install/setup.bash
 src/calibration/tools/record_calibration_diagnostic_bag.sh three_lap_lidar_compare
 ```
 
-The script refuses to record unless `/scan`, `/odom`, `/odom/laser`, the camera,
-and `/sim/ground_truth/tf` are present with the expected message types. It records
-raw/filtered LiDAR, all odometry variants, truth, camera, IMU, TF, lane-debug
-outputs, commands, joint states, and simulation time into one MCAP bag.
+The script refuses to record unless `/scan`, `/scan_filtered`, `/odom`,
+`/odom/laser`, and `/sim/ground_truth/tf` are present with the expected message
+types. It records raw/filtered LiDAR, all odometry variants, truth, IMU, TF,
+commands, joint states, and simulation time into one MCAP bag.
 
 Before driving, check rates and publishers in another terminal:
 

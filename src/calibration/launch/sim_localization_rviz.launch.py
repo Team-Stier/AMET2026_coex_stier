@@ -12,7 +12,7 @@ def generate_launch_description():
                 package="calibration",
                 executable="calibration_node",
                 name="calibration_node",
-                parameters=[str(share / "config" / "lane_detection.yaml")],
+                parameters=[str(share / "config" / "fence_localization.yaml")],
                 output="screen",
             ),
             Node(

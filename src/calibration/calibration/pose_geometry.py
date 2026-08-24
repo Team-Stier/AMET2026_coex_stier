@@ -36,19 +36,3 @@ def transform_pose_2d(
         ty + sine * x + cosine * y,
         normalize_angle(transform_yaw + yaw),
     )
-
-
-def transform_from_local_correction(
-    raw_pose: tuple[float, float, float],
-    lateral_m: float,
-    yaw_rad: float,
-) -> tuple[float, float, float]:
-    """Convert a local lateral/yaw correction into a persistent SE(2) transform."""
-
-    x, y, raw_yaw = raw_pose
-    corrected_pose = (
-        x - math.sin(raw_yaw) * lateral_m,
-        y + math.cos(raw_yaw) * lateral_m,
-        normalize_angle(raw_yaw + yaw_rad),
-    )
-    return map_from_odom_pose(corrected_pose, raw_pose)

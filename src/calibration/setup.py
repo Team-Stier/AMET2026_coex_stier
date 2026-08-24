@@ -14,26 +14,18 @@ setup(
         ("share/" + package_name + "/config", glob("config/*.yaml")),
         ("share/" + package_name + "/launch", glob("launch/*.launch.py")),
         ("share/" + package_name + "/rviz", glob("rviz/*.rviz")),
-        (
-            "share/" + package_name + "/docs",
-            [
-                "docs/sim_lane_map_world_color.png",
-                "docs/sim_lane_map_calibration.json",
-            ],
-        ),
     ],
     install_requires=["setuptools"],
     tests_require=["pytest"],
     zip_safe=True,
     maintainer="Taeyun Kim",
     maintainer_email="taeyunkim@example.com",
-    description="Camera and odometry calibration node.",
+    description="LiDAR fence based odometry calibration node.",
     license="Apache-2.0",
     entry_points={
         "console_scripts": [
             "calibration_node = calibration.calibration_node:main",
             "fence_rviz_bridge = calibration.fence_rviz_bridge:main",
-            "sim_rviz_bridge = calibration.sim_rviz_bridge:main",
         ],
     },
 )

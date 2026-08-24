@@ -1,0 +1,39 @@
+calibration_node:
+  ros__parameters:
+    use_sim_time: true
+    odom_topic: /odom
+    scan_topic: /scan_filtered
+    output_topic: /odom/calibride
+    base_frame: base_footprint
+    reference_frame: map
+    tf_timeout_sec: 0.05
+    maximum_scan_age_sec: 0.15
+    scan_stride: 2
+
+    # Four finite fence segments in the map frame.
+    fence_minimum_x_m: 0.0
+    fence_maximum_x_m: 12.0
+    fence_minimum_y_m: 0.0
+    fence_maximum_y_m: 7.0
+    fence_maximum_match_distance_m: 0.25
+    fence_segment_endpoint_margin_m: 0.10
+    fence_minimum_matches: 80
+    fence_minimum_segments: 3
+    fence_minimum_matches_per_segment: 10
+    fence_maximum_position_correction_m: 0.35
+    fence_maximum_yaw_correction_rad: 0.15
+    fence_huber_delta_m: 0.03
+    fence_maximum_rms_error_m: 0.08
+
+    # Every run starts from the same simulator pose.
+    use_fixed_start_pose: true
+    fixed_start_map_x_m: 1.4
+    fixed_start_map_y_m: 3.4
+    fixed_start_map_yaw_rad: -1.5707963267948966
+
+    correction_ekf_process_position_variance_per_sec: 0.0025
+    correction_ekf_process_yaw_variance_per_sec: 0.0016
+    correction_ekf_minimum_position_variance: 0.0025
+    correction_ekf_measurement_yaw_variance: 0.0076
+    maximum_correction_position_rate_m_s: 0.08
+    maximum_correction_yaw_rate_rad_s: 0.08
