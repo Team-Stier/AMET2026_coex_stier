@@ -36,15 +36,13 @@ declare -a topics=(
     "/odom"
     "/odom/laser"
     "/imu"
-    "/camera/image_raw/compressed"
-    "/camera/pan"
     "/clock"
     "/tf"
     "/tf_static"
 )
 
 echo "Recording mapping inputs to: $output_dir"
-echo "Keep the camera fixed, drive slowly, revisit the start area, and press Ctrl+C once."
+echo "Drive slowly, revisit the start area, and press Ctrl+C once."
 
 exec ros2 bag record \
     --output "$output_dir" \

@@ -34,6 +34,9 @@ compile_commands.json
 # Local calibration recordings
 /records/calibration/**/*.mcap
 /records/calibration/*.tar.gz
+/records/mapping/
+/src/calibration/rosbags/
+/src/calibration/rosbag/
 
 # 뭐여
 /AMET2026_coex_stier/

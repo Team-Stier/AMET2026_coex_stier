@@ -17,16 +17,14 @@ fi
 
 declare -A EXPECTED_TYPES=(
     ["/scan"]="sensor_msgs/msg/LaserScan"
+    ["/scan_filtered"]="sensor_msgs/msg/LaserScan"
     ["/odom"]="nav_msgs/msg/Odometry"
-    ["/camera/image_raw/compressed"]="sensor_msgs/msg/CompressedImage"
 )
 
 declare -a OPTIONAL_TOPICS=(
-    "/scan_filtered"
     "/imu"
     "/odom/laser"
     "/clock"
-    "/camera/pan"
     "/tf"
     "/tf_static"
 )
@@ -66,4 +64,3 @@ echo "  ros2 run tf2_ros tf2_echo odom base_footprint"
 echo "  ros2 topic echo /scan --once --field header"
 echo "  ros2 topic hz /scan"
 echo "  ros2 topic hz /odom"
-echo "  ros2 topic hz /camera/image_raw/compressed"

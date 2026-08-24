@@ -51,15 +51,13 @@ ROS 2 Jazzy 환경을 불러오고 맵 수집에 필요한 토픽 이름과 타�
 
 - `/scan` (`sensor_msgs/msg/LaserScan`)
 - `/odom` (`nav_msgs/msg/Odometry`)
-- `/camera/image_raw/compressed` (`sensor_msgs/msg/CompressedImage`)
+- `/scan_filtered` (`sensor_msgs/msg/LaserScan`)
 
 선택 기록 토픽:
 
-- `/scan_filtered`
 - `/imu`
 - `/odom/laser`
 - `/clock`
-- `/camera/pan`
 - `/tf`
 - `/tf_static`
 
@@ -111,7 +109,7 @@ cd /home/physicar/physicar_ws
 - `slam_toolbox` 설치 및 지도 생성
 - loop closure 품질
 - 시뮬레이션과 실차 맵의 좌표 정합
-- RDDF 생성과 `/odom/calibride` 보정
+- 외곽 펜스 좌표 검증과 `/odom/calibride` 보정
 
 현재 개발 PC는 `ROS_DISTRO=noetic`이며 `ros2`, `colcon`,
 `/opt/ros/jazzy/setup.bash`가 없다. 따라서 실제 ROS 2 실행 성공으로 보고하면 안 된다.
@@ -180,7 +178,6 @@ ros2 topic hz /scan
 ros2 topic hz /scan_filtered
 ros2 topic hz /odom
 ros2 topic hz /odom/laser
-ros2 topic hz /camera/image_raw/compressed
 
 ./src/calibration/tools/record_mapping_bag.sh smoke
 ```
@@ -192,17 +189,14 @@ ros2 bag info records/mapping/<bag-directory>
 ros2 bag play records/mapping/<bag-directory> --clock
 ```
 
-RViz에서 `/scan`, `/odom`, 카메라 영상 및 TF를 확인한다. 실제 frame ID와 bag 경로,
+RViz에서 `/scan`, `/scan_filtered`, `/odom` 및 TF를 확인한다. 실제 frame ID와 bag 경로,
 `ros2 bag info` 결과를 확보한 다음에만 `slam_toolbox` 파라미터 파일을 작성한다.
 
 ## 다음 작업에서 지켜야 할 판단 기준
 
-- `/camera/pan`은 실제 서보 위치 피드백이 아니라 목표 명령값이다.
-- 첫 맵 기록에서는 카메라를 정면에 고정한다.
 - 점유지도와 RDDF는 같은 결과물이 아니므로 분리한다.
 - 시뮬레이터 ground-truth pose와 센서 drift가 포함된 `/odom`을 구분한다.
-- 일반 사진은 차선 검출 개발에는 사용할 수 있지만, pose와 timestamp가 없으면 odometry
-  보정의 정량 평가 기준으로 사용하지 않는다.
+- 펜스 좌표와 고정 시작 pose는 실측 없이 다른 코스에 재사용하지 않는다.
 - 실제 frame ID, 토픽 타입 및 주기를 코드나 문서만 보고 추측하지 않는다.
 - 원본 bag과 사용자 파일을 보존한다.
 
