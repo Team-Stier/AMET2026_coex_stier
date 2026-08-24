@@ -10,16 +10,16 @@ path_planning_node:
     vehicle_length_m: 0.28
     # 앞바퀴 위치와 자전거 모델 곡률(tan(조향각)/wheelbase)을 결정한다.
     wheelbase_m: 0.18
-    # 좌우 바퀴 위치를 ±wheel_track/2로 정해 네 바퀴의 트랙 이탈 검사에 사용한다.
-    wheel_track_m: 0.2
+    # 좌우 바퀴 위치를 ±wheel_track/2로 정해 네 바퀴가 모두 트랙 밖인지 검사한다.
+    wheel_track_m: 0.05
     # 검출된 각 장애물 점을 이 반지름의 원으로 만들어 차량 차체와 충돌 검사한다.
-    obstacle_inflation_radius_m: 0.2
+    obstacle_inflation_radius_m: 0.15
     # 트랙 여유 거리 lookup grid의 셀 간격이다. 작을수록 촘촘하지만 초기 계산량과 메모리가 늘어난다.
     track_lookup_resolution_m: 0.05
     # true면 성공한 Hybrid A* 탐색 트리를 수집해 /path_planning/debug/search_tree로 발행한다.
     publish_search_tree_debug: true
     # 현재 RDDF progress에서 이 거리 앞의 횡단선을 이번 Hybrid A* 탐색 목표로 잡는다.
-    planning_horizon_m: 8.0
+    planning_horizon_m: 5.0
     # 완성 경로 중 현재 차량과 가장 가까운 점부터 이 누적 길이까지만 /path로 발행한다.
     local_path_length_m: 3.0
     # x/y를 이 간격으로 양자화해 Hybrid A*에서 같은 위치 상태인지 판별한다.

@@ -99,8 +99,8 @@ public:
       declare_parameter<double>("maximum_absolute_y_m", 1.5);
     epsilon_m_ = declare_parameter<double>("dbscan_epsilon_m", 0.18);
 
-    const auto minimum_samples = declare_parameter<int>("dbscan_minimum_samples", 3);
-    const auto minimum_cluster_points = declare_parameter<int>("minimum_cluster_points", 3);
+    const auto minimum_samples = declare_parameter<int>("dbscan_minimum_samples", 1);
+    const auto minimum_cluster_points = declare_parameter<int>("minimum_cluster_points", 1);
     const auto maximum_objects = declare_parameter<int>("maximum_objects", 20);
     if (minimum_samples < 1) {
       throw std::invalid_argument("dbscan_minimum_samples must be at least one");

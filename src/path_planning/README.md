@@ -5,7 +5,8 @@
 `PathPlanningNode`는 폐곡선 RDDF, 차량 위치, 장애물 중심점을 이용하여 다음 조건을
 만족하는 경로를 `/path`로 발행한다.
 
-- 네 바퀴가 `innerbound`와 `outerbound` 사이의 트랙 영역을 벗어나지 않는다.
+- 네 바퀴가 모두 `innerbound`와 `outerbound` 사이의 트랙 영역을 벗어났을 때만
+  트랙 이탈로 판정한다.
 - 설정값으로 팽창한 원형 장애물과 차량이 충돌하지 않는다.
 - Hybrid A*로 주행 가능한 경로를 생성한다.
 - 현재 비교 실험에서는 주행 가능한 경로의 누적 길이를 최소화한다.
@@ -33,8 +34,8 @@ Registry에 그대로 저장한다. `use_calibride_odom: true`에서 선택하�
 장애물, 계획 경로와 탐색 트리는 모두 `map` 좌표다. Path Planning Node는 TF를 조회하지
 않으며 `/pose`에 이미 적용된 전역 좌표를 사용한다.
 
-휠 트랙 실측 전에는 차량 폭과 같은 0.20 m를 사용한다. 이는 네 바퀴 경계 조건에 대해
-보수적인 가정이다.
+휠 트랙 실측 전에는 0.05 m를 사용한다. 이는 네 바퀴 접점 위치를 계산하기 위한
+가정이다.
 
 ## 3. 입출력 계약
 
@@ -452,15 +453,16 @@ f(n) = g_distance(n) + h_distance(n)
 앞 오른쪽 = (wheelbase_m, -wheel_track_m / 2)
 ```
 
-네 휠 접점 모두 원래 inner/outer 경계 사이의 주행 가능 polygon 안에 있어야 한다.
-primitive 중간 pose에서도 같은 검사를 한다. 별도의 경계 margin, swept-volume 계산이나
-표본 사이 자동 안전 padding은 두지 않는다.
+네 휠 접점 중 하나라도 원래 inner/outer 경계 사이의 주행 가능 polygon 내부 또는
+경계에 남아 있으면 트랙 이탈이 아니다. 네 접점이 모두 polygon 밖일 때만 pose를
+거부하며 primitive 중간 pose에서도 같은 검사를 한다. 별도의 경계 margin,
+swept-volume 계산이나 표본 사이 자동 안전 padding은 두지 않는다.
 
 반복 탐색 중 매 휠마다 전체 boundary를 순회하지 않도록 노드 시작 시
 `track_lookup_resolution_m` 간격의 signed-clearance lookup grid를 한 번 만든다. 조회할
-때는 가장 가까운 grid 표본의 여유가 `표본까지의 거리 + 수치 오차` 이상일 때만
-유효하다고 판정한다. 경계까지의 거리가 1-Lipschitz라는 성질을 이용한 보수적 조건이라
-grid 근사 때문에 트랙 밖 점을 안으로 허용하지 않는다.
+때는 가장 가까운 grid 표본의 signed clearance와 표본까지의 거리로 명확한 내부·외부를
+빠르게 판정한다. 경계 근처의 불확실한 점만 원래 polygon으로 다시 검사하므로 경계점도
+트랙에 포함되며 grid 근사가 최종 판정을 바꾸지 않는다.
 
 장애물은 설정 반지름으로 팽창한 원이다. 네 휠 조건과 별개로 길이 0.28 m, 폭 0.20 m인
 차량 직사각형과 원의 교차를 검사하여 차체 충돌도 막는다. 트랙 경계에는 요구사항대로
@@ -508,8 +510,8 @@ path_planning_node:
     vehicle_width_m: 0.20
     vehicle_length_m: 0.28
     wheelbase_m: 0.18
-    wheel_track_m: 0.20
-    obstacle_inflation_radius_m: 0.20
+    wheel_track_m: 0.05
+    obstacle_inflation_radius_m: 0.15
     track_lookup_resolution_m: 0.05
     publish_search_tree_debug: true
     planning_horizon_m: 5.0
@@ -549,7 +551,8 @@ path_planning_node:
 
 ## 12. 검증 기준
 
-1. 직선, 좌·우 코너, 시작선에서 모든 primitive의 네 휠이 트랙 내부에 있다.
+1. 직선, 좌·우 코너, 시작선에서 모든 primitive pose의 휠이 하나 이상 트랙 내부 또는
+   경계에 있다.
 2. 정적 장애물의 팽창 원과 차량 직사각형이 교차하지 않는다.
 3. 유효한 odometry가 있는 동안 계획 워커가 별도 타이머나 요청 큐 없이 연속 실행하며,
    완료된 각 계획의 실행 시간을 밀리초 단위 INFO 로그로 남긴다.

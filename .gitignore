@@ -28,6 +28,9 @@ compile_commands.json
 # Generated code knowledge graph
 /graphify-out/
 
+# Codex local artifacts
+.codex*
+
 # Local PhysiCar app state
 /app.physicar
 

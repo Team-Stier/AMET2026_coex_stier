@@ -12,7 +12,7 @@ import rclpy
 from ament_index_python.packages import get_package_share_directory
 from builtin_interfaces.msg import Time
 from geometry_msgs.msg import Point, Pose, PoseStamped
-from interfaces.msg import SearchTree
+from interfaces.msg import Objects, SearchTree
 from nav_msgs.msg import Odometry, Path
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -35,6 +35,7 @@ SEARCH_TREE_INPUT_TOPIC = "/path_planning/debug/search_tree"
 SEARCH_TREE_MARKER_TOPIC = "/visualizer/path_planning/search_tree"
 GLOBAL_PATH_INPUT_TOPIC = "/path_planning/debug/global_path"
 GLOBAL_PATH_TOPIC = "/visualizer/path_planning/global_path"
+OBJECT_MARKER_TOPIC = "/visualizer/object_info"
 
 
 def stamp_from_seconds(seconds: object) -> Time:
@@ -172,6 +173,38 @@ def search_tree_marker(message: SearchTree) -> Marker:
     return marker
 
 
+def object_marker(message: Objects) -> Marker:
+    if message.header.frame_id != LOCAL_FRAME:
+        raise ValueError(f"Objects frame must be {LOCAL_FRAME!r}")
+    count = int(message.length)
+    if count < 0 or count > len(message.x) or count > len(message.y):
+        raise ValueError("Objects length is out of range")
+    if not all(
+        math.isfinite(value)
+        for index in range(count)
+        for value in (message.x[index], message.y[index])
+    ):
+        raise ValueError("Objects contains a non-finite position")
+
+    marker = Marker()
+    marker.header = copy.deepcopy(message.header)
+    marker.ns = "object_info"
+    marker.id = 0
+    marker.type = Marker.SPHERE_LIST
+    marker.action = Marker.ADD if count else Marker.DELETE
+    marker.pose.orientation.w = 1.0
+    marker.scale.x = marker.scale.y = marker.scale.z = 0.12
+    marker.color.r = 1.0
+    marker.color.g = 0.2
+    marker.color.b = 0.1
+    marker.color.a = 0.9
+    marker.points = [
+        Point(x=float(message.x[index]), y=float(message.y[index]))
+        for index in range(count)
+    ]
+    return marker
+
+
 class Visualizer(Node):
     def __init__(self) -> None:
         super().__init__("visualizer")
@@ -223,6 +256,16 @@ class Visualizer(Node):
             SEARCH_TREE_INPUT_TOPIC,
             self._relay_search_tree,
             debug_qos,
+            callback_group=debug_group,
+        )
+        self._object_marker_publisher = self.create_publisher(
+            Marker, OBJECT_MARKER_TOPIC, debug_qos
+        )
+        self.create_subscription(
+            Objects,
+            "/object_info",
+            self._relay_objects,
+            qos_profile_sensor_data,
             callback_group=debug_group,
         )
 
@@ -345,6 +388,17 @@ class Visualizer(Node):
             )
             return
         self._search_tree_publisher.publish(marker)
+
+    def _relay_objects(self, message: Objects) -> None:
+        try:
+            marker = object_marker(message)
+        except ValueError as error:
+            self._warn_once(
+                ("invalid_objects", str(error)),
+                f"ignoring invalid /object_info: {error}",
+            )
+            return
+        self._object_marker_publisher.publish(marker)
 
 
 def main(args: list[str] | None = None) -> None:

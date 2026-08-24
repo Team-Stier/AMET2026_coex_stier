@@ -90,7 +90,7 @@ TEST(RddfTrackTest, LoadsRepositoryRddfWithRepeatedBoundarySamples)
   EXPECT_NEAR(track.lap_length(), 35.5582, 1.0e-3);
 }
 
-TEST(CollisionCheckerTest, EnforcesFourWheelsAndRectangleCircleCollision)
+TEST(CollisionCheckerTest, RequiresOneWheelOnTrackAndRejectsRectangleCircleCollision)
 {
   const RddfTrack track = square_track();
   const VehicleFootprint footprint(0.28, 0.20, 0.18, 0.20);
@@ -99,7 +99,11 @@ TEST(CollisionCheckerTest, EnforcesFourWheelsAndRectangleCircleCollision)
 
   EXPECT_TRUE(checker.is_pose_valid(valid_pose, {}));
   EXPECT_FALSE(checker.is_pose_valid(valid_pose, {{-1.75, -2.0, 0.10}}));
-  EXPECT_FALSE(checker.is_pose_valid({-2.0, -2.95, 0.0}, {}));
+  EXPECT_TRUE(checker.is_pose_valid({-2.0, -2.95, 0.0}, {}));
+  EXPECT_TRUE(checker.is_pose_valid({2.90, -2.95, 0.0}, {}));
+  EXPECT_TRUE(checker.is_pose_valid({2.90, -3.10, 0.0}, {}));
+  EXPECT_TRUE(checker.is_pose_valid({2.90, -3.10 - 0.5e-9, 0.0}, {}));
+  EXPECT_FALSE(checker.is_pose_valid({3.10, -2.0, 0.0}, {}));
 
   std::size_t accepted = 0U;
   for (double x = -2.0; x <= 1.5; x += 0.10) {
@@ -109,9 +113,10 @@ TEST(CollisionCheckerTest, EnforcesFourWheelsAndRectangleCircleCollision)
         continue;
       }
       ++accepted;
-      for (const Point2D & wheel : footprint.wheel_points(pose)) {
-        EXPECT_GE(track.signed_clearance(wheel) + 1.0e-9, 0.0);
-      }
+      const auto wheels = footprint.wheel_points(pose);
+      EXPECT_TRUE(std::any_of(
+          wheels.begin(), wheels.end(),
+          [&track](const Point2D & wheel) { return track.contains(wheel); }));
     }
   }
   EXPECT_GT(accepted, 0U);

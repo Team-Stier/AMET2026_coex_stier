@@ -123,6 +123,7 @@ flowchart TD
         GLOBAL_PATH["/path_planning/debug/global_path<br/>================<br/>nav_msgs/Path (future publisher)"]
         SEARCH_TREE_MARKER["/visualizer/path_planning/search_tree<br/>================<br/>visualization_msgs/Marker"]
         GLOBAL_PATH_VIZ["/visualizer/path_planning/global_path<br/>================<br/>nav_msgs/Path"]
+        OBJECT_MARKER["/visualizer/object_info<br/>================<br/>visualization_msgs/Marker"]
         RVIZ(("RViz"))
     end
     rddf --> VISUALIZER
@@ -131,6 +132,7 @@ flowchart TD
     PATH_PLANNING --> SEARCH_TREE
     SEARCH_TREE --> VISUALIZER
     GLOBAL_PATH --> VISUALIZER
+    OBJECT_INFO --> VISUALIZER
     VISUALIZER --> RDDF_CENTERLINE
     VISUALIZER --> RDDF_INNER
     VISUALIZER --> RDDF_OUTER
@@ -138,6 +140,7 @@ flowchart TD
     VISUALIZER --> EGO_POSE
     VISUALIZER --> SEARCH_TREE_MARKER
     VISUALIZER --> GLOBAL_PATH_VIZ
+    VISUALIZER --> OBJECT_MARKER
     LIDAR --> RVIZ
     MAP_LIDAR_TF --> RVIZ
     RDDF_CENTERLINE --> RVIZ
@@ -193,7 +196,8 @@ Sensor and control topic contracts follow the
   경로를 계획하고 `/path`로 발행한다.
 - **Visualizer Node**: 세 RDDF CSV를 `map` frame의 Path로 발행한다. `/pose` 기반 초록색
   ego Marker를 발행하며 TF는 발행하지 않는다. Path Planning의 SearchTree와 글로벌 경로도
-  `map` frame으로 표시한다. RViz의 원본 `/scan`은 Pose TF Node의 TF로 표시한다.
+  `map` frame으로 표시한다. `/object_info`는 원본 timestamp와 `lidar_link` 좌표를 유지한
+  구형 Marker로 표시하여 ego의 이동과 회전을 따른다. RViz의 원본 `/scan`은 Pose TF Node의 TF로 표시한다.
 - **Control Node**: `/path`와 `/gosign`을 바탕으로 차량의 속도, 조향각, 카메라 팬 각도를 계산해 각각의 제어 토픽으로 발행한다.
 
 ### Topics
@@ -214,6 +218,9 @@ int32 length
 float32[20] x
 float32[20] y
 ```
+- **`/visualizer/object_info`** (`visualization_msgs/Marker`): `/object_info`의 유효한 중심점들을
+  원본 timestamp와 `lidar_link` frame 그대로 유지한 `SPHERE_LIST` Marker. RViz가 해당 시각의
+  `map → lidar_link` TF를 적용하므로 장애물은 ego의 이동과 회전에 붙어서 표시된다.
 - **`/gosign`** (`std_msgs/Bool`): 신호등 인식 결과에 따른 진행 가능 여부. Control Node는 최초 `true`를 주행 시작 신호로 래치하며 이후 메시지의 영향을 받지 않는다.
 - **`/path`** (`nav_msgs/Path`): Path Planning Node가 `map` frame으로 생성한 차량 주행 경로. Control Node의 입력으로 사용한다.
 - **`/rddf/centerline`** (`nav_msgs/Path`): CSV 좌표를 그대로 사용한 `map` frame RDDF 중앙선. RViz에서 노란색으로 표시한다.
