@@ -57,6 +57,7 @@ flowchart TD
     %% PhysiCar sensor topics
     subgraph Rawdata[Raw data]
         LIDAR["/scan<br/>================<br/>sensor_msgs/LaserScan"]
+        LIDAR_FILTERED["/scan_filtered<br/>================<br/>sensor_msgs/LaserScan"]
         IMAGE["/camera/image_raw/compressed<br/>================<br/>sensor_msgs/CompressedImage"]
         ODOM["/odom<br/>================<br/>nav_msgs/Odometry"]
     end
@@ -120,12 +121,9 @@ flowchart TD
     STEERING --> HW
 
 
-    CAMERA_PAN --> CALIBRATION
-
-
     CALIBRATION --> ODOM_CALIBRIDE
     ODOM_CALIBRIDE --> PATH_PLANNING
-    IMAGE --> CALIBRATION
+    LIDAR_FILTERED --> CALIBRATION
 ```
 
 Sensor and control topic contracts follow the
@@ -135,14 +133,14 @@ Sensor and control topic contracts follow the
 
 - **Object Detection Node**: `/scan`의 LiDAR 거리 데이터를 이용해 주행 경로상의 장애물을 클러스터링하고, 장애물들을 원으로 피팅 후 원의 중심점을 리스트로 `/object_info`발행한다.
 - **Traffic Light Node**: `/camera/image_raw/compressed`의 카메라 영상에서 `yolo`를 이용해 신호등을 판독하고, 결과를 `/gosign`으로 발행한다. 발행 이후 이 노드는 즉시 종료된다. 실행 환경에 `yolo`sw가 설치 되어 있으므로 개발시 참고하도록 한다.
-- **Calibration Node**: 카메라 영상을 `/camera/pan`으로 보정 후, 카메라 이미지에 인식된 중앙차선을 로컬 좌표계의 rddf에 피팅한다. 피팅 결과를 바탕으로 `/odom`을 보정한다. 보정 결과를 `/odom/calibride`로 발행한다.
+- **Calibration Node**: `/scan_filtered`의 2D LiDAR 점을 맵 외곽의 네 펜스 선분에 정합해 `/odom`의 x, y, yaw를 보정하고 `/odom/calibride`로 발행한다.
 - **Path Planning Node**: RDDF 경로와 `/odom`, `/odom/calibride`, `/object_info`를 이용해 주행 가능한 경로를 계획하고 `/path`로 발행한다.
 - **Control Node**: `/path`와 `/gosign`을 바탕으로 차량의 속도, 조향각, 카메라 팬 각도를 계산해 각각의 제어 토픽으로 발행한다.
 
 ### Topics
 
 - **`/scan`** (`sensor_msgs/LaserScan`): LiDAR가 측정한 각도별 거리 데이터. Object Detection Node의 입력으로 사용한다.
-- **`/camera/image_raw/compressed`** (`sensor_msgs/CompressedImage`): JPEG 형식의 압축 카메라 영상. Traffic Light Node와 Calibration Node가 구독한다.
+- **`/camera/image_raw/compressed`** (`sensor_msgs/CompressedImage`): JPEG 형식의 압축 카메라 영상. Traffic Light Node가 구독한다.
 - **`/odom`** (`nav_msgs/Odometry`): LiDAR와 IMU를 융합해 추정한 차량의 위치, 자세 및 속도 정보. Path Planning Node와 Calibration Node의 입력으로 사용한다.
 - **`/object_info`** (`interfaces/msg/Objects`): Object Detection Node가 생성한 장애물 탐지 결과. 원으로 피팅된 장애물의 중심점의 리스트이다.
 ```cpp
@@ -154,7 +152,8 @@ float32[20] x
 float32[20] y
 ```
 - **`/gosign`** (`std_msgs/Bool`): 신호등 인식 결과에 따른 진행 가능 여부. `true`는 진행 가능, `false`는 정지로 사용한다.
-- **`/odom/calibride`** (`nav_msgs/Odometry`): Calibration Node가 카메라 팬 방향 등을 반영해 보정한 odometry 정보.
+- **`/scan_filtered`** (`sensor_msgs/LaserScan`): Calibration Node가 외곽 펜스 정합에 사용하는 거리 필터링 LiDAR scan.
+- **`/odom/calibride`** (`nav_msgs/Odometry`): Calibration Node가 LiDAR 외곽 펜스를 기준으로 보정한 odometry 정보.
 - **`/path`** (`nav_msgs/Path`): Path Planning Node가 생성한 차량 주행 경로. Control Node의 입력으로 사용한다.
 - **`/speed`** (`std_msgs/Float64`): 차량의 목표 속도 명령. 단위는 m/s이다.
 - **`/steering`** (`std_msgs/Float64`): 차량의 목표 조향각 명령. 단위는 rad이며 양수는 좌회전을 의미한다.
