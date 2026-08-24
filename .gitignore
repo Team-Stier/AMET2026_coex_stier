@@ -2,6 +2,8 @@
 /build/
 /install/
 /log/
+/records/
+/maps/
 
 # Local Superpowers planning artifacts
 /docs/superpowers/
