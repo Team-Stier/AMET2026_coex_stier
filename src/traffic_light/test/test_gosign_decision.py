@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -7,10 +8,28 @@ from sensor_msgs.msg import CompressedImage
 
 from traffic_light.traffic_light_node import (
     GoSignDecision,
+    TrafficLightNode,
     make_debug_image,
     read_model_image_size,
     resolve_model_image_size,
 )
+
+
+class Recorder:
+    def __init__(self):
+        self.subscription_count = 0
+        self.values = []
+        self.ack_timeouts = []
+
+    def get_subscription_count(self):
+        return self.subscription_count
+
+    def publish(self, message):
+        self.values.append(message.data)
+
+    def wait_for_all_acked(self, timeout):
+        self.ack_timeouts.append(timeout.nanoseconds)
+        return True
 
 
 def test_gosign_requires_stable_green_and_stops_immediately():
@@ -28,6 +47,30 @@ def test_gosign_requires_stable_green_and_stops_immediately():
 def test_gosign_rejects_invalid_confirmation_count():
     with pytest.raises(ValueError):
         GoSignDecision(required_green_frames=0)
+
+
+def test_gosign_true_publishes_once_then_shuts_down():
+    publisher = Recorder()
+    shutdowns = []
+    node = SimpleNamespace(
+        completed=False,
+        gosign_pub=publisher,
+        last_gosign=False,
+        context=SimpleNamespace(try_shutdown=lambda: shutdowns.append(True)),
+    )
+
+    TrafficLightNode.publish_gosign(node, True)
+    assert publisher.values == []
+
+    publisher.subscription_count = 1
+    TrafficLightNode.publish_gosign(node, False)
+    TrafficLightNode.publish_gosign(node, True)
+    TrafficLightNode.publish_gosign(node, True)
+
+    assert publisher.values == [False, True]
+    assert node.completed is True
+    assert publisher.ack_timeouts == [1_000_000_000]
+    assert shutdowns == [True]
 
 
 def test_make_debug_image_preserves_header_and_encodes_jpeg():

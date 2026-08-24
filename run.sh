@@ -69,13 +69,13 @@ start_node() {
 }
 
 start_node "object_detection" "object_detection_node"
+start_node "control" "control_node"
 start_node "traffic_light" "traffic_light_node" "oneshot"
 start_node "calibration" "calibration_node"
 start_node "pose_tf" "pose_tf_node"
 start_node "path_planning" "path_planning_node" "persistent" \
     --ros-args --params-file \
     "${WORKSPACE_ROOT}/install/path_planning/share/path_planning/config/path_planning.yaml"
-start_node "control" "control_node"
 
 echo "[bringup] starting visualizer/launch.sh"
 "${WORKSPACE_ROOT}/src/visualizer/launch.sh" &

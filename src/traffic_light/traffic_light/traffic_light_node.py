@@ -4,6 +4,7 @@ from ament_index_python.packages import get_package_share_directory
 import cv2
 import numpy as np
 import rclpy
+from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
@@ -131,6 +132,7 @@ class TrafficLightNode(Node):
         self.decision = GoSignDecision(required_green_frames)
         self.last_image_time = self.get_clock().now()
         self.last_gosign = False
+        self.completed = False
         self.gosign_pub = self.create_publisher(Bool, "/gosign", 10)
         image_qos = QoSProfile(
             depth=1,
@@ -163,16 +165,30 @@ class TrafficLightNode(Node):
             )
 
     def publish_gosign(self, allowed: bool) -> None:
+        if self.completed or (
+            allowed and self.gosign_pub.get_subscription_count() == 0
+        ):
+            return
+
+        if allowed:
+            self.completed = True
         message = Bool()
         message.data = allowed
         self.gosign_pub.publish(message)
         self.last_gosign = allowed
+        if allowed:
+            if not self.gosign_pub.wait_for_all_acked(Duration(seconds=1.0)):
+                self.get_logger().warning("/gosign acknowledgment timed out")
+            self.context.try_shutdown()
 
     def publish_stop(self) -> None:
         self.decision.reset()
         self.publish_gosign(False)
 
     def on_image(self, image: CompressedImage) -> None:
+        if self.completed:
+            return
+
         self.last_image_time = self.get_clock().now()
         frame = cv2.imdecode(
             np.frombuffer(image.data, dtype=np.uint8), cv2.IMREAD_COLOR
