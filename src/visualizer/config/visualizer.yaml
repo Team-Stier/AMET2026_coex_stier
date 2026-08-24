@@ -1,0 +1,7 @@
+visualizer:
+  ros__parameters:
+    enable_sim_gt: true
+    sim_state_url: "http://localhost/sim/api/state"
+    sim_poll_rate_hz: 20.0
+    sim_timeout_sec: 0.05
+    sim_retry_sec: 2.0

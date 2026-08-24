@@ -5,10 +5,18 @@
   <description>RDDF-based path planning node for the AMET2026 stack.</description>
   <maintainer email="taeyunkim@example.com">Taeyun Kim</maintainer>
   <license>Apache-2.0</license>
-  <buildtool_depend>ament_python</buildtool_depend>
-  <exec_depend>rclpy</exec_depend>
-  <exec_depend>nav_msgs</exec_depend>
-  <exec_depend>interfaces</exec_depend>
-  <test_depend>ament_pytest</test_depend>
-  <export><build_type>ament_python</build_type></export>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>ament_index_cpp</depend>
+  <depend>geometry_msgs</depend>
+  <depend>interfaces</depend>
+  <depend>nav_msgs</depend>
+  <depend>rclcpp</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
 </package>

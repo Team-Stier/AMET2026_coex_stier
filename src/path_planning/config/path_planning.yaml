@@ -1,0 +1,54 @@
+path_planning_node:
+  ros__parameters:
+    # RDDF 중심선/내·외곽 경계를 읽는 CSV. 상대 경로는 path_planning 패키지 share 디렉터리 기준이다.
+    rddf_file: "rddf/rddf.csv"
+    # false면 map frame의 /pose, true면 /odom/calibride 하나만 구독해 계획 시작 pose로 사용한다.
+    use_calibride_odom: false
+    # 장애물 충돌 검사에 쓰는 차량 직사각형의 전체 폭이다.
+    vehicle_width_m: 0.20
+    # 차량 직사각형의 전체 길이이며, wheelbase와의 차이는 앞뒤 오버행으로 반씩 배분된다.
+    vehicle_length_m: 0.28
+    # 앞바퀴 위치와 자전거 모델 곡률(tan(조향각)/wheelbase)을 결정한다.
+    wheelbase_m: 0.18
+    # 좌우 바퀴 위치를 ±wheel_track/2로 정해 네 바퀴의 트랙 이탈 검사에 사용한다.
+    wheel_track_m: 0.2
+    # 검출된 각 장애물 점을 이 반지름의 원으로 만들어 차량 차체와 충돌 검사한다.
+    obstacle_inflation_radius_m: 0.2
+    # 트랙 여유 거리 lookup grid의 셀 간격이다. 작을수록 촘촘하지만 초기 계산량과 메모리가 늘어난다.
+    track_lookup_resolution_m: 0.05
+    # true면 성공한 Hybrid A* 탐색 트리를 수집해 /path_planning/debug/search_tree로 발행한다.
+    publish_search_tree_debug: true
+    # 현재 RDDF progress에서 이 거리 앞의 횡단선을 이번 Hybrid A* 탐색 목표로 잡는다.
+    planning_horizon_m: 8.0
+    # 완성 경로 중 현재 차량과 가장 가까운 점부터 이 누적 길이까지만 /path로 발행한다.
+    local_path_length_m: 3.0
+    # x/y를 이 간격으로 양자화해 Hybrid A*에서 같은 위치 상태인지 판별한다.
+    xy_resolution_m: 0.10
+    # yaw를 이 각도 간격으로 양자화해 같은 방향 상태인지 판별한다.
+    yaw_resolution_deg: 10.0
+    # 각 motion primitive를 이 값 이하 간격으로 보간해 중간 pose까지 충돌 검사한다.
+    collision_check_step_m: 0.025
+    # Hybrid A*가 한 번 확장할 때 각 조향 후보로 전진시키는 거리다.
+    motion_primitive_length_m: 0.25
+    # 각 상태에서 생성할 전진 primitive의 조향각 목록이다. 단위는 degree이며 모든 항목을 확장한다.
+    steering_candidates_deg: [-60.0, -30.0, 0.0, 30.0, 60.0]
+    # RDDF 진행도를 이 간격으로 양자화해 같은 탐색 상태인지 판별한다.
+    progress_resolution_m: 0.20
+    # 목표 progress와 목표 횡단선의 전후 방향 오차에 허용하는 거리이며 휴리스틱에도 반영된다.
+    goal_longitudinal_tolerance_m: 0.15
+    # 목표 횡단선 방향과 후보 pose 방향의 허용 각도 차이다.
+    goal_yaw_tolerance_deg: 20.0
+    # 자식 상태의 RDDF progress가 부모보다 뒤로 연결될 수 있는 최대 허용 거리다.
+    progress_regression_tolerance_m: 0.05
+    # 한 primitive의 RDDF progress 증가를 primitive 길이의 이 배수까지 허용하며 휴리스틱에도 쓰인다.
+    max_progress_advance_ratio: 3.0
+    # 한 번의 계획에서 저장할 탐색 노드 수의 상한이다. 도달하면 새 노드를 더 추가하지 않는다.
+    max_search_nodes: 100000
+    # 현재는 양수 검증과 CostModel 저장만 하며, 비활성화된 시간 비용식 때문에 탐색 결과에는 영향이 없다.
+    max_speed_mps: 1.5
+    # 현재는 양수 검증과 CostModel 저장만 하며, 비활성화된 곡률별 속도 계산 때문에 탐색 결과에는 영향이 없다.
+    max_lateral_accel_mps2: 1.5
+    # 현재는 0 이상 검증과 저장만 하며, 곡률 비용항이 주석 처리되어 탐색 결과에는 영향이 없다.
+    w_curvature: 1.0
+    # 현재는 0 이상 검증과 저장만 하며, 곡률 변화 비용항이 주석 처리되어 탐색 결과에는 영향이 없다.
+    w_curvature_change: 0.2

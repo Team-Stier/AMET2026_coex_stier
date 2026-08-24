@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>visualizer</name>
+  <version>0.1.0</version>
+  <description>Source-faithful RViz debugging for RDDF, ego poses, and local topics.</description>
+  <maintainer email="taeyunkim@example.com">Taeyun Kim</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>builtin_interfaces</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>interfaces</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <test_depend>ament_pytest</test_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>

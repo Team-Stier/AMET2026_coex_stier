@@ -53,10 +53,15 @@ trap cleanup EXIT INT TERM
 start_node() {
     local package_name=$1
     local executable=$2
-    local mode=${3:-persistent}
+    shift 2
+
+    local mode=${1:-persistent}
+    if (($# > 0)); then
+        shift
+    fi
 
     echo "[bringup] starting $package_name/$executable"
-    ros2 run "$package_name" "$executable" &
+    ros2 run "$package_name" "$executable" "$@" &
     PIDS+=("$!")
     NODE_NAMES+=("$package_name/$executable")
     NODE_MODES+=("$mode")
@@ -64,10 +69,18 @@ start_node() {
 }
 
 start_node "object_detection" "object_detection_node"
-start_node "traffic_light" "traffic_light_node" "oneshot"
-start_node "calibration" "calibration_node"
-start_node "path_planning" "path_planning_node"
 start_node "control" "control_node"
+start_node "traffic_light" "traffic_light_node" "oneshot"
+start_node "pose_tf" "pose_tf_node"
+start_node "path_planning" "path_planning_node" "persistent" \
+    --ros-args --params-file \
+    "${WORKSPACE_ROOT}/install/path_planning/share/path_planning/config/path_planning.yaml"
+
+echo "[bringup] starting visualizer/launch.sh"
+"${WORKSPACE_ROOT}/src/visualizer/launch.sh" &
+PIDS+=("$!")
+NODE_NAMES+=("visualizer/launch.sh")
+NODE_MODES+=("persistent")
 
 echo "[bringup] all nodes started"
 
