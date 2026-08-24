@@ -976,11 +976,20 @@ CollisionChecker::CollisionChecker(
 
 bool CollisionChecker::wheel_is_inside_track(const Point2D & wheel) const noexcept
 {
-  if (!finite(wheel) ||
-    wheel.x < lookup_minimum_x_ || wheel.x > lookup_maximum_x_ ||
-    wheel.y < lookup_minimum_y_ || wheel.y > lookup_maximum_y_)
+  if (!finite(wheel)) {
+    return false;
+  }
+  if (wheel.x < lookup_minimum_x_ - kGeometryEpsilon ||
+    wheel.x > lookup_maximum_x_ + kGeometryEpsilon ||
+    wheel.y < lookup_minimum_y_ - kGeometryEpsilon ||
+    wheel.y > lookup_maximum_y_ + kGeometryEpsilon)
   {
     return false;
+  }
+  if (wheel.x < lookup_minimum_x_ || wheel.x > lookup_maximum_x_ ||
+    wheel.y < lookup_minimum_y_ || wheel.y > lookup_maximum_y_)
+  {
+    return track_.contains(wheel);
   }
   const std::size_t column = std::min(
     static_cast<std::size_t>(std::llround((wheel.x - lookup_minimum_x_) / lookup_resolution_)),
@@ -995,7 +1004,13 @@ bool CollisionChecker::wheel_is_inside_track(const Point2D & wheel) const noexce
   const double sample_distance = distance(wheel, sample);
   const double sampled_clearance =
     track_clearance_lookup_[row * lookup_columns_ + column];
-  return sampled_clearance >= sample_distance + kGeometryEpsilon;
+  if (sampled_clearance >= sample_distance + kGeometryEpsilon) {
+    return true;
+  }
+  if (sampled_clearance < -sample_distance - kGeometryEpsilon) {
+    return false;
+  }
+  return track_.contains(wheel);
 }
 
 bool CollisionChecker::is_pose_valid(
@@ -1005,10 +1020,12 @@ bool CollisionChecker::is_pose_valid(
   if (!finite(pose)) {
     return false;
   }
-  for (const Point2D & wheel : footprint_.wheel_points(pose)) {
-    if (!wheel_is_inside_track(wheel)) {
-      return false;
-    }
+  const auto wheels = footprint_.wheel_points(pose);
+  if (std::none_of(
+      wheels.begin(), wheels.end(),
+      [this](const Point2D & wheel) { return wheel_is_inside_track(wheel); }))
+  {
+    return false;
   }
   for (const Circle & obstacle : obstacles) {
     if (!finite(obstacle.x) || !finite(obstacle.y) || !finite(obstacle.radius) ||

@@ -125,6 +125,7 @@ flowchart TD
         GLOBAL_PATH["/path_planning/debug/global_path<br/>================<br/>nav_msgs/Path (future publisher)"]
         SEARCH_TREE_MARKER["/visualizer/path_planning/search_tree<br/>================<br/>visualization_msgs/Marker"]
         GLOBAL_PATH_VIZ["/visualizer/path_planning/global_path<br/>================<br/>nav_msgs/Path"]
+        OBJECT_MARKER["/visualizer/object_info<br/>================<br/>visualization_msgs/Marker"]
         RVIZ(("RViz"))
     end
     rddf --> VISUALIZER
@@ -133,6 +134,7 @@ flowchart TD
     PATH_PLANNING --> SEARCH_TREE
     SEARCH_TREE --> VISUALIZER
     GLOBAL_PATH --> VISUALIZER
+    OBJECT_INFO --> VISUALIZER
     VISUALIZER --> RDDF_CENTERLINE
     VISUALIZER --> RDDF_INNER
     VISUALIZER --> RDDF_OUTER
@@ -140,6 +142,7 @@ flowchart TD
     VISUALIZER --> EGO_POSE
     VISUALIZER --> SEARCH_TREE_MARKER
     VISUALIZER --> GLOBAL_PATH_VIZ
+    VISUALIZER --> OBJECT_MARKER
     LIDAR --> RVIZ
     MAP_LIDAR_TF --> RVIZ
     RDDF_CENTERLINE --> RVIZ
@@ -196,7 +199,7 @@ Sensor and control topic contracts follow the
 ### Nodes
 
 - **Object Detection Node**: `/scan`의 LiDAR 거리 데이터를 이용해 주행 경로상의 장애물을 클러스터링하고, 장애물들을 원으로 피팅 후 원의 중심점을 리스트로 `/object_info`발행한다.
-- **Traffic Light Node**: `/camera/image_raw/compressed`의 카메라 영상에서 `yolo`를 이용해 신호등을 판독하고, 결과를 `/gosign`으로 발행한다. 발행 이후 이 노드는 즉시 종료된다. 실행 환경에 `yolo`sw가 설치 되어 있으므로 개발시 참고하도록 한다.
+- **Traffic Light Node**: `/camera/image_raw/compressed`의 카메라 영상에서 `yolo`를 이용해 신호등을 판독한다. 초록 신호가 연속 3프레임 확인되면 `/gosign=true`를 한 번 발행하고, reliable 전송의 ACK를 확인한 뒤 정상 종료한다. 실행 환경에 `yolo`sw가 설치 되어 있으므로 개발시 참고하도록 한다.
 - **Calibration Node**: 카메라 영상을 `/camera/pan`으로 보정 후, 카메라 이미지에 인식된 중앙차선을 로컬 좌표계의 rddf에 피팅한다. 피팅 결과를 바탕으로 `/odom`을 보정한다. 보정 결과를 `/odom/calibride`로 발행한다.
 - **Pose TF Node**: `/odom/laser` pose를 Z축 시계방향 `90°` 회전하고 centerline 첫 점을 더한 `/pose`와
   동일한 `map → lidar_link` TF를 발행한다. 둘의 orientation 모두 Z축 시계방향 `90°`를
@@ -205,7 +208,8 @@ Sensor and control topic contracts follow the
   `/object_info`를 이용해 `map` 좌표에서 경로를 계획하고 `/path`로 발행한다.
 - **Visualizer Node**: 세 RDDF CSV를 `map` frame의 Path로 발행한다. `/pose` 기반 초록색
   ego Marker를 발행하며 TF는 발행하지 않는다. Path Planning의 SearchTree와 글로벌 경로도
-  `map` frame으로 표시한다. RViz의 원본 `/scan`은 Pose TF Node의 TF로 표시한다.
+  `map` frame으로 표시한다. `/object_info`는 원본 timestamp와 `lidar_link` 좌표를 유지한
+  구형 Marker로 표시하여 ego의 이동과 회전을 따른다. RViz의 원본 `/scan`은 Pose TF Node의 TF로 표시한다.
 - **Control Node**: `/path`와 `/gosign`을 바탕으로 차량의 속도, 조향각, 카메라 팬 각도를 계산해 각각의 제어 토픽으로 발행한다.
 
 ### Topics
@@ -226,7 +230,10 @@ int32 length
 float32[20] x
 float32[20] y
 ```
-- **`/gosign`** (`std_msgs/Bool`): 신호등 인식 결과에 따른 진행 가능 여부. `true`는 진행 가능, `false`는 정지로 사용한다.
+- **`/visualizer/object_info`** (`visualization_msgs/Marker`): `/object_info`의 유효한 중심점들을
+  원본 timestamp와 `lidar_link` frame 그대로 유지한 `SPHERE_LIST` Marker. RViz가 해당 시각의
+  `map → lidar_link` TF를 적용하므로 장애물은 ego의 이동과 회전에 붙어서 표시된다.
+- **`/gosign`** (`std_msgs/Bool`): 신호등 인식 결과에 따른 진행 가능 여부. Control Node는 최초 `true`를 주행 시작 신호로 래치하며 이후 메시지의 영향을 받지 않는다.
 - **`/odom/calibride`** (`nav_msgs/Odometry`): Calibration Node가 카메라 팬 방향 등을 반영해 보정한 pose. Path Planning에서 선택하려면 `/pose`와 같은 `map → lidar_link` 계약을 따라야 한다.
 - **`/path`** (`nav_msgs/Path`): Path Planning Node가 `map` frame으로 생성한 차량 주행 경로. Control Node의 입력으로 사용한다.
 - **`/rddf/centerline`** (`nav_msgs/Path`): CSV 좌표를 그대로 사용한 `map` frame RDDF 중앙선. RViz에서 노란색으로 표시한다.
@@ -295,8 +302,9 @@ source /home/physicar/physicar_ws/run.sh
 `run.sh`는 source 호출을 감지하면 별도의 Bash 프로세스에서 bringup을 수행해 호출한
 셸의 옵션, 작업 디렉터리, trap을 변경하지 않아야 한다. 실행 프로세스는 ROS 2 Jazzy
 환경을 불러오고 `colcon build --cmake-clean-cache`를 실행한 뒤,
-Object Detection → Traffic Light → Calibration → Pose TF → Path Planning → Control → Visualizer/RViz
-순서로 노드를 시작한다. Traffic Light Node는 `/gosign` 발행 후 정상 종료할 수 있으며,
+Object Detection → Control → Traffic Light → Calibration → Pose TF → Path Planning → Visualizer/RViz
+순서로 노드를 시작한다. Control Node를 Traffic Light Node보다 먼저 시작해 `/gosign`
+구독을 준비한다. Traffic Light Node는 최초 `/gosign=true`를 한 번 발행한 뒤 정상 종료하며,
 나머지 상시 실행 노드가 종료되면 전체 프로그램도 종료한다. `Ctrl+C`를 누르면
 스크립트가 실행한 모든 노드를 함께 종료한다.
 
@@ -308,12 +316,12 @@ Object Detection → Traffic Light → Calibration → Pose TF → Path Planning
 
 ```bash
 ros2 run object_detection object_detection_node
+ros2 run control control_node
 ros2 run traffic_light traffic_light_node
 ros2 run calibration calibration_node
 ros2 run pose_tf pose_tf_node
 ros2 run path_planning path_planning_node
 ./src/visualizer/launch.sh
-ros2 run control control_node
 ```
 
 예를 들어 패키지별 환경변수, 모델 경로, 파라미터 파일 등의 초기화가 필요해

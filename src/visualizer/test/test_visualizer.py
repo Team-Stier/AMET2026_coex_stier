@@ -1,13 +1,14 @@
 import math
 
 import pytest
-from interfaces.msg import SearchTree
+from interfaces.msg import Objects, SearchTree
 from nav_msgs.msg import Odometry
 
 from visualizer.visualizer import (
     GLOBAL_FRAME,
     LOCAL_FRAME,
     load_xy_csv,
+    object_marker,
     path_message,
     pose_from_odometry,
     search_tree_marker,
@@ -128,3 +129,29 @@ def test_search_tree_rejects_non_map_frame():
 
     with pytest.raises(ValueError, match="frame"):
         search_tree_marker(tree)
+
+
+def test_object_info_becomes_lidar_attached_spheres():
+    objects = Objects()
+    objects.header.frame_id = LOCAL_FRAME
+    objects.header.stamp.sec = 7
+    objects.length = 2
+    objects.x[0], objects.y[0] = 1.0, 0.25
+    objects.x[1], objects.y[1] = 2.0, -0.5
+
+    marker = object_marker(objects)
+
+    assert marker.header == objects.header
+    assert marker.type == marker.SPHERE_LIST
+    assert [(point.x, point.y) for point in marker.points] == [
+        (1.0, 0.25),
+        (2.0, -0.5),
+    ]
+
+
+def test_object_info_rejects_non_lidar_frame():
+    objects = Objects()
+    objects.header.frame_id = GLOBAL_FRAME
+
+    with pytest.raises(ValueError, match="frame"):
+        object_marker(objects)

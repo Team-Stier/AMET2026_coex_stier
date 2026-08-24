@@ -24,8 +24,8 @@ ros2 run object_detection object_detection_node
 | `minimum_forward_x_m` | `0.0` | ROI 활성화 시 전방 영역의 최소 x |
 | `maximum_absolute_y_m` | `1.5` | ROI 활성화 시 좌우 영역 `|y|` 한계 |
 | `dbscan_epsilon_m` | `0.18` | DBSCAN 이웃 거리 |
-| `dbscan_minimum_samples` | `3` | DBSCAN core point 최소 이웃 수 |
-| `minimum_cluster_points` | `3` | 최종 클러스터가 가져야 할 최소 점 개수 |
+| `dbscan_minimum_samples` | `1` | DBSCAN core point 최소 이웃 수 |
+| `minimum_cluster_points` | `1` | 최종 클러스터가 가져야 할 최소 점 개수 |
 | `maximum_cluster_extent_m` | `0.8` | 이보다 큰 클러스터 제거 |
 | `maximum_objects` | `20` | 메시지에 넣을 최대 장애물 수 |
 | `publish_markers` | `true` | RViz MarkerArray 발행 여부 |
