@@ -60,10 +60,10 @@ src/
 └── control/
 ```
 
-`interfaces`와 디버깅 전용 `visualizer`를 제외한 각 실행 패키지는 동명의 노드
-하나와 1:1로 대응한다. `visualizer`의 기본 노드 이름도 `visualizer`이며, 디버깅
-source의 독립성을 위해 필요하면 여러 노드로 구성할 수 있는 예외로 둔다. `interfaces`는
-실행 노드 없이, 노드 패키지 사이에서 공유하는 사용자 정의 메시지, 서비스 및 액션 타입만 제공한다.
+`calibration`은 향후 구현을 위한 빈 패키지이며 실행 노드가 없다. `interfaces`도 실행
+노드 없이 노드 패키지 사이에서 공유하는 사용자 정의 메시지, 서비스 및 액션 타입만
+제공한다. 나머지 실행 패키지는 동명의 노드 하나와 1:1로 대응하되, 디버깅 전용
+`visualizer`는 필요하면 여러 노드로 구성할 수 있는 예외로 둔다.
 
 ## ROS 2 architecture
 
@@ -97,10 +97,8 @@ flowchart TD
     subgraph Perception[Perception]
         OBJECT_DETECT(("Object Detection Node"))
         TL(("Traffic Light Node"))
-        CALIBRATION(("Calibration Node"))
         OBJECT_INFO["/object_info<br/>================<br/>interfaces/msg/Objects"]
         TL_RESULT["/gosign<br/>================<br/>std_msgs/Bool"]
-        ODOM_CALIBRIDE["/odom/calibride<br/>================<br/>nav_msgs/Odometry"]
 
     end
 
@@ -165,7 +163,6 @@ flowchart TD
 
     %% Localization
     POSE --> PATH_PLANNING
-    ODOM --> CALIBRATION
 
     %% Planning and control
     PATH_PLANNING --> PATH
@@ -174,20 +171,12 @@ flowchart TD
     CONTROL_PID --> STEERING
     CONTROL_PID --> CAMERA_PAN
 
-    %% Calibration feedback shown in the original sketch
     HW((("HW")))
 
     SPEED --> HW
     CAMERA_PAN --> HW
     STEERING --> HW
 
-
-    CAMERA_PAN --> CALIBRATION
-
-
-    CALIBRATION --> ODOM_CALIBRIDE
-    ODOM_CALIBRIDE --> PATH_PLANNING
-    IMAGE --> CALIBRATION
 ```
 
 Sensor and control topic contracts follow the
@@ -196,13 +185,12 @@ Sensor and control topic contracts follow the
 ### Nodes
 
 - **Object Detection Node**: `/scan`의 LiDAR 거리 데이터를 이용해 주행 경로상의 장애물을 클러스터링하고, 장애물들을 원으로 피팅 후 원의 중심점을 리스트로 `/object_info`발행한다.
-- **Traffic Light Node**: `/camera/image_raw/compressed`의 카메라 영상에서 `yolo`를 이용해 신호등을 판독하고, 결과를 `/gosign`으로 발행한다. 발행 이후 이 노드는 즉시 종료된다. 실행 환경에 `yolo`sw가 설치 되어 있으므로 개발시 참고하도록 한다.
-- **Calibration Node**: 카메라 영상을 `/camera/pan`으로 보정 후, 카메라 이미지에 인식된 중앙차선을 로컬 좌표계의 rddf에 피팅한다. 피팅 결과를 바탕으로 `/odom`을 보정한다. 보정 결과를 `/odom/calibride`로 발행한다.
+- **Traffic Light Node**: `/camera/image_raw/compressed`의 카메라 영상에서 `yolo`를 이용해 신호등을 판독한다. 초록 신호가 연속 3프레임 확인되면 `/gosign=true`를 한 번 발행하고, reliable 전송의 ACK를 확인한 뒤 정상 종료한다. 실행 환경에 `yolo`sw가 설치 되어 있으므로 개발시 참고하도록 한다.
 - **Pose TF Node**: `/odom/laser` pose를 Z축 시계방향 `90°` 회전하고 centerline 첫 점을 더한 `/pose`와
   동일한 `map → lidar_link` TF를 발행한다. 둘의 orientation 모두 Z축 시계방향 `90°`를
   적용한다.
-- **Path Planning Node**: RDDF 경로와 기본 `/pose` 또는 선택적 `/odom/calibride`,
-  `/object_info`를 이용해 `map` 좌표에서 경로를 계획하고 `/path`로 발행한다.
+- **Path Planning Node**: RDDF 경로와 `/pose`, `/object_info`를 이용해 `map` 좌표에서
+  경로를 계획하고 `/path`로 발행한다.
 - **Visualizer Node**: 세 RDDF CSV를 `map` frame의 Path로 발행한다. `/pose` 기반 초록색
   ego Marker를 발행하며 TF는 발행하지 않는다. Path Planning의 SearchTree와 글로벌 경로도
   `map` frame으로 표시한다. RViz의 원본 `/scan`은 Pose TF Node의 TF로 표시한다.
@@ -211,8 +199,8 @@ Sensor and control topic contracts follow the
 ### Topics
 
 - **`/scan`** (`sensor_msgs/LaserScan`): LiDAR가 측정한 각도별 거리 데이터. Object Detection Node의 입력으로 사용한다.
-- **`/camera/image_raw/compressed`** (`sensor_msgs/CompressedImage`): JPEG 형식의 압축 카메라 영상. Traffic Light Node와 Calibration Node가 구독한다.
-- **`/odom`** (`nav_msgs/Odometry`): LiDAR와 IMU를 융합해 추정한 차량의 위치, 자세 및 속도 정보. Calibration Node의 입력으로 사용한다.
+- **`/camera/image_raw/compressed`** (`sensor_msgs/CompressedImage`): JPEG 형식의 압축 카메라 영상. Traffic Light Node가 구독한다.
+- **`/odom`** (`nav_msgs/Odometry`): LiDAR와 IMU를 융합해 추정한 차량의 위치, 자세 및 속도 정보.
 - **`/odom/laser`** (`nav_msgs/Odometry`): Pose TF Node가 구독하는 LiDAR odometry 원본.
 - **`/pose`** (`nav_msgs/Odometry`): `/odom/laser`의 위치와 orientation을 Z축 시계방향
   `90°` 회전하고 centerline 첫 점을 더한 SIM GT 기준 전역 차량 pose. `header.frame_id`는 `map`,
@@ -226,8 +214,7 @@ int32 length
 float32[20] x
 float32[20] y
 ```
-- **`/gosign`** (`std_msgs/Bool`): 신호등 인식 결과에 따른 진행 가능 여부. `true`는 진행 가능, `false`는 정지로 사용한다.
-- **`/odom/calibride`** (`nav_msgs/Odometry`): Calibration Node가 카메라 팬 방향 등을 반영해 보정한 pose. Path Planning에서 선택하려면 `/pose`와 같은 `map → lidar_link` 계약을 따라야 한다.
+- **`/gosign`** (`std_msgs/Bool`): 신호등 인식 결과에 따른 진행 가능 여부. Control Node는 최초 `true`를 주행 시작 신호로 래치하며 이후 메시지의 영향을 받지 않는다.
 - **`/path`** (`nav_msgs/Path`): Path Planning Node가 `map` frame으로 생성한 차량 주행 경로. Control Node의 입력으로 사용한다.
 - **`/rddf/centerline`** (`nav_msgs/Path`): CSV 좌표를 그대로 사용한 `map` frame RDDF 중앙선. RViz에서 노란색으로 표시한다.
 - **`/rddf/inner_boundary`** (`nav_msgs/Path`): CSV 좌표를 그대로 사용한 `map` frame RDDF 안쪽 경계선.
@@ -295,8 +282,9 @@ source /home/physicar/physicar_ws/run.sh
 `run.sh`는 source 호출을 감지하면 별도의 Bash 프로세스에서 bringup을 수행해 호출한
 셸의 옵션, 작업 디렉터리, trap을 변경하지 않아야 한다. 실행 프로세스는 ROS 2 Jazzy
 환경을 불러오고 `colcon build --cmake-clean-cache`를 실행한 뒤,
-Object Detection → Traffic Light → Calibration → Pose TF → Path Planning → Control → Visualizer/RViz
-순서로 노드를 시작한다. Traffic Light Node는 `/gosign` 발행 후 정상 종료할 수 있으며,
+Object Detection → Control → Traffic Light → Pose TF → Path Planning → Visualizer/RViz
+순서로 노드를 시작한다. Control Node를 Traffic Light Node보다 먼저 시작해 `/gosign`
+구독을 준비한다. Traffic Light Node는 최초 `/gosign=true`를 한 번 발행한 뒤 정상 종료하며,
 나머지 상시 실행 노드가 종료되면 전체 프로그램도 종료한다. `Ctrl+C`를 누르면
 스크립트가 실행한 모든 노드를 함께 종료한다.
 
@@ -308,12 +296,11 @@ Object Detection → Traffic Light → Calibration → Pose TF → Path Planning
 
 ```bash
 ros2 run object_detection object_detection_node
+ros2 run control control_node
 ros2 run traffic_light traffic_light_node
-ros2 run calibration calibration_node
 ros2 run pose_tf pose_tf_node
 ros2 run path_planning path_planning_node
 ./src/visualizer/launch.sh
-ros2 run control control_node
 ```
 
 예를 들어 패키지별 환경변수, 모델 경로, 파라미터 파일 등의 초기화가 필요해
@@ -325,7 +312,6 @@ ros2 run control control_node
 ```bash
 ./src/object_detection/launch.sh
 ./src/traffic_light/launch.sh
-./src/calibration/launch.sh
 ./src/pose_tf/launch.sh
 ./src/path_planning/launch.sh
 ./src/control/launch.sh
