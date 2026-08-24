@@ -187,7 +187,6 @@ public:
   CollisionChecker(
     const RddfTrack & track,
     VehicleFootprint footprint,
-    double track_margin_m,
     double track_lookup_resolution_m);
 
   bool is_pose_valid(
@@ -202,7 +201,6 @@ private:
 
   const RddfTrack & track_;
   VehicleFootprint footprint_;
-  double track_margin_{};
   double lookup_resolution_{};
   double lookup_minimum_x_{};
   double lookup_minimum_y_{};

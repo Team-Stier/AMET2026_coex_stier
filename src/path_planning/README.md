@@ -58,7 +58,7 @@ Registry에 그대로 저장한다. `use_calibride_odom: true`에서 선택하�
 subscription을 만든다. `true`이면 `/odom/calibride`만 사용하고 `/pose`는 구독하거나
 fallback으로 사용하지 않는다. `false`이면 `/pose`만 사용한다.
 
-## 4. 실행 전략과 고정 주기 계획
+## 4. 실행 전략과 연속 계획
 
 계획 연산과 로컬 경로 발행의 주기를 분리한다.
 
@@ -68,27 +68,26 @@ CPython 바이트코드가 아니라 C++17 네이티브 코드로 실행한다. 
 
 - 선택된 odometry 콜백은 pose를 갱신하고 현재 경로의 앞쪽 구간을 잘라 `/path`로
   발행한다. 로컬 경로 발행 주기는 선택된 odometry 수신 주기와 같다.
-- `planning_rate_hz` 타이머는 매 주기마다 최신 `PlanningSnapshot`을 읽고 pose가 있으면
-  `PlanningWorker.request(snapshot)`을 호출한다. 거리, 남은 경로, 횡방향 오차,
-  heading 오차, 경로 나이 조건은 사용하지 않는다.
-- 선택된 odometry pose를 아직 받지 않았을 때만 해당 tick의 요청을 건너뛴다.
-- 계획 워커가 쉬고 있으면 요청을 즉시 실행한다. 이미 실행 중이면 큐를 늘리지 않고
-  단일 pending 슬롯을 최신 스냅샷으로 교체한다. 실행 중인 탐색은 중간 취소하지 않으며,
-  끝난 직후 pending 스냅샷 하나를 이어서 처리한다.
+- `PlanningWorker`의 `std::thread`는 별도 타이머나 sleep 없이 순수 `while` 반복문으로
+  동작한다. 매 반복마다 Registry에서 최신 `PlanningSnapshot`을 직접 읽고, pose가 있으면
+  즉시 Hybrid A*를 실행한다.
+- 선택된 odometry pose를 아직 받지 않았으면 계획하지 않고 다음 반복으로 넘어간다.
+- 고정 계획 주기, 요청 큐, pending 슬롯은 없다. 한 번의 계획이 끝나면 최신 pose와
+  장애물을 다시 읽어 다음 계획을 바로 시작한다.
 - Hybrid A*는 각 상태를 확장할 때 `steering_candidates_deg`에 적힌 모든 조향각으로
   primitive를 만들고, 유효한 자식 상태를 `g+h` 우선순위로 OPEN에 삽입한다.
 - 계획에 성공하면 생성된 경로를 Registry에 등록한다. `/object_info` 콜백은 최신 pose로
   변환한 장애물 목록만 교체하며 기존 경로를 자동으로 무효화하지 않는다.
 
-타이머의 주기는 `1 / planning_rate_hz`초다. Hybrid A* 한 번의 실행 시간이 이 주기보다
-길면 실제 새 경로 생성률은 설정 Hz보다 낮아질 수 있지만, pending 슬롯이 하나뿐이므로
-오래된 요청이 누적되지는 않는다. 초기값은 3 Hz이며 Raspberry Pi 5에서 측정한 계획
-시간에 따라 YAML에서 조정한다.
+각 `HybridAStarPlanner.plan()` 호출이 반환되면 `steady_clock`으로 측정한 실행 시간을
+밀리초 단위 DEBUG 로그로 남긴다. 실제 계획률은 별도로 제한하지 않으며 대략 한 번의
+계획 실행 시간의 역수로 결정된다. 이 시간은 기본 로그 레벨에서도 실행 터미널에 계속
+표시되도록 INFO 로그로 출력한다.
 
 현재 개발 및 기능 검증 환경은 Raspberry Pi 5나 실차가 아니라 임시 SIM 호스트다. 이
 호스트에서 얻은 계획 시간과 발행률은 기능 회귀 확인용일 뿐 Raspberry Pi 5 성능을
-보장하지 않는다. 실제 `planning_rate_hz`와 시간 예산은 Raspberry Pi 5 8 GB에 배포한 뒤
-동일한 RDDF·장애물 시나리오로 다시 계측해 확정한다.
+보장하지 않는다. 실제 계획 시간은 Raspberry Pi 5 8 GB에 배포한 뒤 동일한
+RDDF·장애물 시나리오로 다시 계측한다.
 
 ### 4.1 계획 실패
 
@@ -97,7 +96,7 @@ Hybrid A*가 경로를 찾지 못하면 경로 및 Registry에 대해서는 아�
 수행하지 않는다. Registry에 성공 경로가 한 번 등록된 뒤에는 이후 계획 실패와 무관하게
 같은 경로를 유지하고, 매 odometry 콜백에서 계속 전방 구간을 잘라 발행한다.
 
-다음 `planning_rate_hz` tick에서는 최신 pose와 장애물로 다시 계획을 요청한다.
+계획 워커의 다음 반복에서는 최신 pose와 장애물로 다시 계획한다.
 
 로컬 경로 발행 주기는 선택된 odometry 수신 주기이며, 목표인 30~50 Hz를 내려면
 odometry도 같은 수준으로 들어와야 한다. 탐색은 벽시계 시간으로 중단하지 않으며,
@@ -172,7 +171,6 @@ classDiagram
     class PathPlanningNode {
         <<rclcpp::Node>>
         -bool use_calibride_odom
-        -float planning_rate_hz
         -bool publish_search_tree_debug
         -vector~double~ steering_candidates_deg
         -Publisher search_tree_publisher
@@ -183,7 +181,6 @@ classDiagram
         +load_parameters()
         +on_selected_odometry(msg)
         +on_object_info(msg)
-        +on_planning_timer()
         +publish_search_tree(snapshot, result)
     }
     class PlanningRegistry {
@@ -209,10 +206,9 @@ classDiagram
         +contains(point) bool
     }
     class PlanningWorker {
-        -optional~PlanningSnapshot~ pending
+        -atomic_bool stopping
         -std::thread worker_thread
         -Callable on_attempt_finished
-        +request(snapshot)
         -run()
     }
     class HybridAStarPlanner {
@@ -308,17 +304,14 @@ sequenceDiagram
         N->>N: 이번 메시지 처리 종료
     end
 
-    loop planning_rate_hz 타이머
-        N->>REG: planning_snapshot()
-        REG-->>N: pose, obstacles
+    loop PlanningWorker가 중단될 때까지 연속 실행
+        W->>REG: planning_snapshot()
+        REG-->>W: pose, obstacles
         alt pose가 있음
-            N->>W: request(snapshot)
+            W->>HA: plan(snapshot)
         else pose 없음
-            N->>N: 이번 tick 건너뜀
+            W->>W: 다음 반복으로 이동
         end
-    end
-
-    W->>HA: plan(snapshot)
     HA->>RT: progress(시작 위치), goal_gate_from(시작 progress, horizon)
     RT-->>HA: 시작 progress와 목표 gate
     loop OPEN에서 꺼낸 각 탐색 상태
@@ -339,6 +332,7 @@ sequenceDiagram
         end
     end
     HA-->>W: 성공 경로와 debug 노드 목록 또는 실패
+    W->>W: 계획 실행 시간(ms) INFO 로그
     alt 유효 경로
         W->>REG: commit_path(path)
         opt publish_search_tree_debug
@@ -347,6 +341,7 @@ sequenceDiagram
         end
     else 실패
         Note over W: Registry와 SearchTree를 변경하지 않고 반환
+    end
     end
 ```
 
@@ -457,15 +452,13 @@ f(n) = g_distance(n) + h_distance(n)
 앞 오른쪽 = (wheelbase_m, -wheel_track_m / 2)
 ```
 
-`track_margin_m`만큼 양쪽 경계를 트랙 안쪽으로 이동시킨 뒤, 네 점 모두 축소된 주행
-가능 polygon 안에 있어야 한다. 기본 margin은 안정성 여유로 차량 폭과 같은 0.20 m다.
-primitive 중간 pose에서도 같은 검사를 한다. 별도의 swept-volume 계산이나 표본 사이
-자동 안전 padding은 두지 않는다. 실제 안전 여유는 `collision_check_step_m`을 충분히
-작게 하고 `track_margin_m`을 충분히 크게 설정하여 직접 튜닝한다.
+네 휠 접점 모두 원래 inner/outer 경계 사이의 주행 가능 polygon 안에 있어야 한다.
+primitive 중간 pose에서도 같은 검사를 한다. 별도의 경계 margin, swept-volume 계산이나
+표본 사이 자동 안전 padding은 두지 않는다.
 
 반복 탐색 중 매 휠마다 전체 boundary를 순회하지 않도록 노드 시작 시
 `track_lookup_resolution_m` 간격의 signed-clearance lookup grid를 한 번 만든다. 조회할
-때는 가장 가까운 grid 표본의 여유가 `track_margin_m + 표본까지의 거리` 이상일 때만
+때는 가장 가까운 grid 표본의 여유가 `표본까지의 거리 + 수치 오차` 이상일 때만
 유효하다고 판정한다. 경계까지의 거리가 1-Lipschitz라는 성질을 이용한 보수적 조건이라
 grid 근사 때문에 트랙 밖 점을 안으로 허용하지 않는다.
 
@@ -482,7 +475,7 @@ grid 근사 때문에 트랙 밖 점을 안으로 허용하지 않는다.
 ## 10. 설정 파일과 튜닝값 관리 원칙
 
 `src/path_planning/config/path_planning.yaml`을 Path Planning의 모든 튜닝 가능한
-파라미터에 대한 단일 기준으로 사용한다. 차량 제원, 안전 여유, 계획 주기와 해상도,
+파라미터에 대한 단일 기준으로 사용한다. 차량 제원, 장애물 팽창 반지름, 해상도,
 명시 조향각 후보 목록과 탐색 상한을 모두 이 파일에서 조정한다. 예상 속도
 제한값과 곡률 비용 가중치는 기존 비용식 복원 시 사용할 값으로 유지하며 다른 소스 파일에
 중복 하드코딩하지 않는다.
@@ -517,9 +510,7 @@ path_planning_node:
     wheelbase_m: 0.18
     wheel_track_m: 0.20
     obstacle_inflation_radius_m: 0.20
-    track_margin_m: 0.20
     track_lookup_resolution_m: 0.05
-    planning_rate_hz: 3.0
     publish_search_tree_debug: true
     planning_horizon_m: 5.0
     local_path_length_m: 3.0
@@ -560,8 +551,8 @@ path_planning_node:
 
 1. 직선, 좌·우 코너, 시작선에서 모든 primitive의 네 휠이 트랙 내부에 있다.
 2. 정적 장애물의 팽창 원과 차량 직사각형이 교차하지 않는다.
-3. 유효한 odometry가 있는 동안 `planning_rate_hz`의 매 tick마다 계획 요청이 생성되고,
-   계획 중에도 pending 요청은 하나를 넘지 않는다.
+3. 유효한 odometry가 있는 동안 계획 워커가 별도 타이머나 요청 큐 없이 연속 실행하며,
+   완료된 각 계획의 실행 시간을 밀리초 단위 INFO 로그로 남긴다.
 4. 장애물 중심점은 최신 선택 odometry pose로 전역 변환한 뒤 양자화 없이 Registry의
    장애물 목록을 교체한다. 이 입력 갱신은 Registry의 기존 경로를 바꾸지 않는다.
 5. 선택된 `/pose` 또는 `/odom/calibride`는 `map` frame이어야 하며 Registry pose,

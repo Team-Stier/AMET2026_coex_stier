@@ -927,14 +927,11 @@ bool VehicleFootprint::body_intersects(const Circle & circle, const Pose2D & pos
 CollisionChecker::CollisionChecker(
   const RddfTrack & track,
   VehicleFootprint footprint,
-  double track_margin_m,
   double track_lookup_resolution_m)
 : track_(track),
   footprint_(std::move(footprint)),
-  track_margin_(track_margin_m),
   lookup_resolution_(track_lookup_resolution_m)
 {
-  require_nonnegative(track_margin_m, "track margin");
   require_positive(track_lookup_resolution_m, "track lookup resolution");
   const std::vector<Point2D> & outer = track_.outer_boundary();
   lookup_minimum_x_ = outer.front().x;
@@ -998,7 +995,7 @@ bool CollisionChecker::wheel_is_inside_track(const Point2D & wheel) const noexce
   const double sample_distance = distance(wheel, sample);
   const double sampled_clearance =
     track_clearance_lookup_[row * lookup_columns_ + column];
-  return sampled_clearance >= track_margin_ + sample_distance + kGeometryEpsilon;
+  return sampled_clearance >= sample_distance + kGeometryEpsilon;
 }
 
 bool CollisionChecker::is_pose_valid(

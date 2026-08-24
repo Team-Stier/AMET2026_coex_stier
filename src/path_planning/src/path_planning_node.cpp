@@ -1,9 +1,9 @@
 // Copyright 2026 Physicar contributors
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
-#include <condition_variable>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -235,33 +235,10 @@ public:
   PlanningWorker(const PlanningWorker &) = delete;
   PlanningWorker & operator=(const PlanningWorker &) = delete;
 
-  void request(PlanningSnapshot snapshot)
-  {
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      if (stopping_) {
-        return;
-      }
-      pending_ = std::move(snapshot);
-    }
-    condition_.notify_one();
-  }
-
 private:
   void stop()
   {
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      if (stopping_) {
-        if (!thread_.joinable()) {
-          return;
-        }
-      } else {
-        stopping_ = true;
-        pending_.reset();
-      }
-    }
-    condition_.notify_one();
+    stopping_ = true;
     if (thread_.joinable()) {
       thread_.join();
     }
@@ -269,26 +246,27 @@ private:
 
   void run()
   {
-    while (true) {
-      PlanningSnapshot snapshot;
-      {
-        std::unique_lock<std::mutex> lock(mutex_);
-        condition_.wait(lock, [this] {return stopping_ || pending_.has_value();});
-        if (stopping_) {
-          return;
-        }
-        snapshot = std::move(*pending_);
-        pending_.reset();
+    while (!stopping_) {
+      PlanningSnapshot snapshot = registry_.planning_snapshot();
+      if (!snapshot.pose) {
+        std::this_thread::yield();
+        continue;
       }
 
+      const auto planning_started = std::chrono::steady_clock::now();
       PlanAttemptResult result;
       try {
         result = planner_.plan(snapshot);
       } catch (const std::exception & error) {
         RCLCPP_ERROR(logger_, "planning attempt failed with exception: %s", error.what());
+        continue;
       } catch (...) {
         RCLCPP_ERROR(logger_, "planning attempt failed with an unknown exception");
+        continue;
       }
+      const double planning_elapsed_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - planning_started).count();
+      RCLCPP_INFO(logger_, "planning completed in %.3f ms", planning_elapsed_ms);
 
       if (result.status == PlanStatus::kSuccess && result.path) {
         try {
@@ -320,10 +298,7 @@ private:
   PlanningRegistry & registry_;
   AttemptCallback attempt_callback_;
   rclcpp::Logger logger_;
-  std::mutex mutex_;
-  std::condition_variable condition_;
-  std::optional<PlanningSnapshot> pending_;
-  bool stopping_{false};
+  std::atomic_bool stopping_{false};
   std::thread thread_;
 };
 
@@ -350,7 +325,7 @@ public:
     collision_checker_ = std::make_unique<CollisionChecker>(
       *track_,
       VehicleFootprint(vehicle_length_m_, vehicle_width_m_, wheelbase_m_, wheel_track_m_),
-      track_margin_m_, track_lookup_resolution_m_);
+      track_lookup_resolution_m_);
     cost_model_ = std::make_unique<CostModel>(
       max_speed_mps_, max_lateral_accel_mps2_, w_curvature_, w_curvature_change_);
     std::vector<double> steering_candidates_rad;
@@ -399,14 +374,6 @@ public:
     planning_worker_ = std::make_unique<PlanningWorker>(
       *planner_, *registry_, std::move(attempt_callback), get_logger());
 
-    const auto timer_period = std::chrono::duration_cast<std::chrono::nanoseconds>(
-      std::chrono::duration<double>(1.0 / planning_rate_hz_));
-    if (timer_period.count() <= 0) {
-      throw std::invalid_argument("planning_rate_hz produces an invalid timer period");
-    }
-    planning_timer_ = create_wall_timer(
-      timer_period, std::bind(&PathPlanningNode::on_planning_timer, this));
-
     RCLCPP_INFO(
       get_logger(), "using %s with RDDF %s", selected_pose_topic.c_str(),
       rddf_path.string().c_str());
@@ -414,9 +381,6 @@ public:
 
   ~PathPlanningNode() override
   {
-    if (planning_timer_) {
-      planning_timer_->cancel();
-    }
     odometry_subscription_.reset();
     object_subscription_.reset();
     planning_worker_.reset();
@@ -440,9 +404,7 @@ public:
     wheel_track_m_ = required_parameter<double>("wheel_track_m");
     obstacle_inflation_radius_m_ =
       required_parameter<double>("obstacle_inflation_radius_m");
-    track_margin_m_ = required_parameter<double>("track_margin_m");
     track_lookup_resolution_m_ = required_parameter<double>("track_lookup_resolution_m");
-    planning_rate_hz_ = required_parameter<double>("planning_rate_hz");
     publish_search_tree_debug_ = required_parameter<bool>("publish_search_tree_debug");
     planning_horizon_m_ = required_parameter<double>("planning_horizon_m");
     local_path_length_m_ = required_parameter<double>("local_path_length_m");
@@ -478,9 +440,7 @@ private:
     require_positive("wheelbase_m", wheelbase_m_);
     require_positive("wheel_track_m", wheel_track_m_);
     require_positive("obstacle_inflation_radius_m", obstacle_inflation_radius_m_);
-    require_nonnegative("track_margin_m", track_margin_m_);
     require_positive("track_lookup_resolution_m", track_lookup_resolution_m_);
-    require_positive("planning_rate_hz", planning_rate_hz_);
     require_positive("planning_horizon_m", planning_horizon_m_);
     require_positive("local_path_length_m", local_path_length_m_);
     require_positive("xy_resolution_m", xy_resolution_m_);
@@ -605,15 +565,6 @@ public:
     registry_->replace_obstacles(std::move(obstacles));
   }
 
-  void on_planning_timer()
-  {
-    PlanningSnapshot snapshot = registry_->planning_snapshot();
-    if (!snapshot.pose) {
-      return;
-    }
-    planning_worker_->request(std::move(snapshot));
-  }
-
   void publish_search_tree(
     const PlanningSnapshot & snapshot,
     const PlanAttemptResult & result)
@@ -647,9 +598,7 @@ private:
   double wheelbase_m_{};
   double wheel_track_m_{};
   double obstacle_inflation_radius_m_{};
-  double track_margin_m_{};
   double track_lookup_resolution_m_{};
-  double planning_rate_hz_{};
   bool publish_search_tree_debug_{false};
   double planning_horizon_m_{};
   double local_path_length_m_{};
@@ -678,7 +627,6 @@ private:
   rclcpp::Publisher<interfaces::msg::SearchTree>::SharedPtr search_tree_publisher_;
   rclcpp::Subscription<interfaces::msg::Objects>::SharedPtr object_subscription_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometry_subscription_;
-  rclcpp::TimerBase::SharedPtr planning_timer_;
   std::unique_ptr<PlanningWorker> planning_worker_;
 };
 
