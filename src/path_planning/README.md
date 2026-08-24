@@ -20,33 +20,18 @@
 
 ## 2. 좌표계와 전제
 
-RDDF 좌표를 전역 `map` 좌표로 사용한다. 선택된 odometry의 로컬 pose를 Registry에
-직접 넣지 않는다. 첫 odometry pose를 RDDF 첫 centerline 점과 첫 segment의 진행
-방향에 정합하여 고정된 2D 강체변환을 만든 뒤, 이후 모든 odometry pose를 `map`으로
-변환한다. 입력 메시지의 frame이 이미 `map`이면 변환 없이 사용한다.
+RDDF와 차량 pose는 전역 `map` 좌표를 사용한다. 기본 입력 `/pose`는 TF Node가
+`/odom/laser`의 위치와 orientation을 Z축 시계방향 `90°` 회전한 뒤 RDDF 첫 centerline
+점을 더해 SIM GT와 정렬한 `map` frame
+`nav_msgs/Odometry`다. Path Planning Node는 이 좌표를 다시 정합하거나 변환하지 않고
+Registry에 그대로 저장한다. `use_calibride_odom: true`에서 선택하는
+`/odom/calibride`도 같은 `map` frame 계약을 따라야 한다.
 
-- 선택된 odometry pose는 차량 뒤 차축 중심의 `(x_odom, y_odom, yaw_odom)`를 나타낸다.
-- 첫 odometry pose `(x_0, y_0, yaw_0)`가 수신될 때 차량은 RDDF 첫 centerline 점에 있고
-  첫 segment 방향을 향한다고 전제한다.
-- RDDF 시작 pose를 `(x_map0, y_map0, yaw_map0)`라 하고
-  `delta_yaw = yaw_map0 - yaw_0`로 둔다.
-- `/object_info`의 중심점은 뒤 차축 중심 기준 차량 로컬 좌표다. `+x`는 전방, `+y`는
-  좌측이다.
-- Object Detection Node가 LiDAR 장착 위치에서 뒤 차축 중심까지의 고정 오프셋을 먼저
-  반영하여 위 차량 로컬 좌표 계약을 만족해야 한다.
-- Path Planning Node는 먼저 odometry pose를 다음과 같이 `map` pose로 변환한다.
-
-```text
-dx = x_odom - x_0
-dy = y_odom - y_0
-x_map = x_map0 + cos(delta_yaw) * dx - sin(delta_yaw) * dy
-y_map = y_map0 + sin(delta_yaw) * dx + cos(delta_yaw) * dy
-yaw_map = normalize(yaw_odom + delta_yaw)
-```
-
-그다음 최신 `map` 차량 pose로 장애물 로컬 중심점을 회전·이동한다. RDDF, 차량 pose,
-장애물, 계획 경로와 탐색 트리는 모두 `map` 좌표다. 고정 변환은 노드 내부의 시작 pose
-두 개로 직접 계산하므로 별도의 TF 조회나 `TransformBuffer`는 필요하지 않다.
+- 선택된 pose는 `lidar_link` 원점의 `(x_map, y_map, yaw_map)`를 나타낸다.
+- `/object_info`의 중심점은 `lidar_link` 로컬 좌표다. `+x`는 전방, `+y`는 좌측이다.
+최신 `map` 차량 pose로 장애물 로컬 중심점을 회전·이동한다. RDDF, 차량 pose,
+장애물, 계획 경로와 탐색 트리는 모두 `map` 좌표다. Path Planning Node는 TF를 조회하지
+않으며 `/pose`에 이미 적용된 전역 좌표를 사용한다.
 
 휠 트랙 실측 전에는 차량 폭과 같은 0.20 m를 사용한다. 이는 네 바퀴 경계 조건에 대해
 보수적인 가정이다.
@@ -56,7 +41,7 @@ yaw_map = normalize(yaw_odom + delta_yaw)
 | 구분 | 이름 | 형식 | 계약 |
 |---|---|---|---|
 | 정적 입력 | `rddf_file` | CSV 경로 | `center_x_m,center_y_m,inner_x_m,inner_y_m,outer_x_m,outer_y_m` 열을 가진 폐곡선 |
-| 동적 입력 | `/odom` | `nav_msgs/Odometry` | `use_calibride_odom: false`일 때만 구독하는 차량 pose와 속도 |
+| 동적 입력 | `/pose` | `nav_msgs/Odometry` | `use_calibride_odom: false`일 때만 구독하는 `map` frame 차량 pose와 속도 |
 | 동적 입력 | `/odom/calibride` | `nav_msgs/Odometry` | `use_calibride_odom: true`일 때만 구독하는 차량 pose와 속도 |
 | 동적 입력 | `/object_info` | `interfaces/Objects` | 뒤 차축 중심 기준 차량 로컬 좌표의 장애물 중심점 |
 | 출력 | `/path` | `nav_msgs/Path` | `map` 좌표의 전방 로컬 구간, pose 방향 포함 |
@@ -70,8 +55,8 @@ yaw_map = normalize(yaw_odom + delta_yaw)
 관측은 사용하지 않고 진단 로그를 남긴다.
 
 노드는 시작할 때 `use_calibride_odom`을 한 번 읽고 선택된 odometry 토픽 하나에만
-subscription을 만든다. `true`이면 `/odom/calibride`만 사용하고 `/odom`은 구독하거나
-fallback으로 사용하지 않는다. `false`이면 `/odom`만 사용한다.
+subscription을 만든다. `true`이면 `/odom/calibride`만 사용하고 `/pose`는 구독하거나
+fallback으로 사용하지 않는다. `false`이면 `/pose`만 사용한다.
 
 ## 4. 실행 전략과 고정 주기 계획
 
@@ -90,6 +75,8 @@ CPython 바이트코드가 아니라 C++17 네이티브 코드로 실행한다. 
 - 계획 워커가 쉬고 있으면 요청을 즉시 실행한다. 이미 실행 중이면 큐를 늘리지 않고
   단일 pending 슬롯을 최신 스냅샷으로 교체한다. 실행 중인 탐색은 중간 취소하지 않으며,
   끝난 직후 pending 스냅샷 하나를 이어서 처리한다.
+- Hybrid A*는 각 상태를 확장할 때 `steering_candidates_deg`에 적힌 모든 조향각으로
+  primitive를 만들고, 유효한 자식 상태를 `g+h` 우선순위로 OPEN에 삽입한다.
 - 계획에 성공하면 생성된 경로를 Registry에 등록한다. `/object_info` 콜백은 최신 pose로
   변환한 장애물 목록만 교체하며 기존 경로를 자동으로 무효화하지 않는다.
 
@@ -149,11 +136,12 @@ open/closed 상태와 z 좌표는 넣지 않는다. 동적 데이터 크기는 C
 메시지 객체가 필요하므로 사용하지 않는다. 네 기본형 배열을 가진 메시지 하나만
 사용한다.
 
-여기서 전체 트리는 탐색 종료 시 open/closed에 남은 모든 유효 생성 상태와 각 상태의
-실제 parent 관계다. 시작 상태와 충돌 또는 트랙 이탈로 거부된 primitive는 간선에
-포함하지 않는다. 같은 양자화 key가 더 낮은 비용으로 다시 발견되면 기존 record의 pose와
-parent를 바꾸지 않고 새 record를 추가한다. 따라서 각 parent 간선은 실제 충돌 검사한
-primitive를 계속 나타내며, 디버그 트리에는 해당 key의 개선 이력이 함께 남을 수 있다.
+여기서 전체 트리는 탐색 종료 전까지 실제 충돌 검사를 통과해 생성된 모든 상태와 각 상태의
+parent 관계다. 시작 상태와 충돌 또는 트랙 이탈로 거부된 primitive는 간선에 포함하지
+않는다. 같은 양자화 key가 더 낮은 비용으로 다시 발견되면 기존 record의 pose와 parent를
+바꾸지 않고 새 record를 추가한다. 따라서 각
+parent 간선은 실제 충돌 검사한 primitive를 계속 나타내며, 디버그 트리에는 해당 key의
+개선 이력이 함께 남을 수 있다.
 
 `publish_search_tree_debug`가 `false`이면 배열 구성과 발행을 모두 생략한다. 원본
 `SearchTree` 토픽은 계획을 막지 않도록 `KEEP_LAST(1)`, `BEST_EFFORT`, `VOLATILE`을
@@ -186,8 +174,7 @@ classDiagram
         -bool use_calibride_odom
         -float planning_rate_hz
         -bool publish_search_tree_debug
-        -Pose2D map_origin
-        -optional~Pose2D~ odom_origin
+        -vector~double~ steering_candidates_deg
         -Publisher search_tree_publisher
         -PlanningRegistry registry
         -RddfTrack track
@@ -217,6 +204,7 @@ classDiagram
         -vector~double~ cumulative_length
         +from_csv(csv_path)
         +progress(point) float
+        +progress_within(point, minimum, maximum) optional~float~
         +goal_gate_from(progress, horizon) GoalGate
         +contains(point) bool
     }
@@ -228,7 +216,10 @@ classDiagram
         -run()
     }
     class HybridAStarPlanner {
-        -CostModel cost_model
+        -const RddfTrack& track
+        -const CollisionChecker& collision_checker
+        -const CostModel& cost_model
+        -vector~double~ curvatures
         +plan(const PlanningSnapshot) PlanAttemptResult
     }
     class CollisionChecker {
@@ -299,15 +290,13 @@ sequenceDiagram
     participant HA as HybridAStarPlanner
     participant CC as CollisionChecker
     participant CM as CostModel
+    participant RT as RddfTrack
 
     N->>N: declare/read ROS parameters
     N->>LOC: 선택된 토픽 하나만 subscribe
     N->>W: PlanningWorker 생성 및 thread start
     LOC->>N: 선택된 odometry 토픽
-    opt 입력 frame이 map이 아니고 첫 pose인 경우
-        N->>N: odom 원점을 RDDF 시작 pose에 정합
-    end
-    N->>N: 선택된 odometry pose를 map pose로 변환
+    N->>N: 선택된 map pose 검증
     N->>REG: update_pose(map pose)
     OD->>N: /object_info의 차량 로컬 중심점
     N->>REG: latest_pose()
@@ -330,13 +319,26 @@ sequenceDiagram
     end
 
     W->>HA: plan(snapshot)
-    loop 각 이동 primitive
-        HA->>CC: is_primitive_valid(primitive, obstacles)
-        CC-->>HA: 유효 또는 무효
-        HA->>CM: transition_cost(distance, curvature, previous_curvature)
-        CM-->>HA: 이동 거리 비용
+    HA->>RT: progress(시작 위치), goal_gate_from(시작 progress, horizon)
+    RT-->>HA: 시작 progress와 목표 gate
+    loop OPEN에서 꺼낸 각 탐색 상태
+        loop steering_candidates_deg의 모든 조향각
+            HA->>CC: is_primitive_valid(primitive, obstacles)
+            CC-->>HA: 유효 또는 무효
+            opt primitive가 유효함
+                HA->>RT: progress_within(끝점, 허용 progress 범위)
+                RT-->>HA: 자식 progress 또는 없음
+                opt 자식 progress가 있음
+                    HA->>CM: transition_cost(distance, curvature, previous_curvature)
+                    CM-->>HA: 이동 거리 비용
+                    HA->>CM: heuristic(목표까지의 거리 하한)
+                    CM-->>HA: 휴리스틱 비용
+                    HA->>HA: 자식을 g+h 우선순위로 OPEN에 삽입
+                end
+            end
+        end
     end
-    HA-->>W: 경로 또는 실패와 생성 노드 목록
+    HA-->>W: 성공 경로와 debug 노드 목록 또는 실패
     alt 유효 경로
         W->>REG: commit_path(path)
         opt publish_search_tree_debug
@@ -359,8 +361,8 @@ sequenceDiagram
     participant CTRL as ControlNode
 
     loop 선택된 odometry 메시지마다
-        LOC->>N: /odom 또는 /odom/calibride 중 선택된 하나
-        N->>N: odometry pose를 map pose로 변환
+        LOC->>N: /pose 또는 /odom/calibride 중 선택된 하나
+        N->>N: map frame pose 검증
         N->>REG: update_pose(map pose)
         N->>LP: slice(map pose)
         LP->>REG: current_path()
@@ -406,6 +408,13 @@ primitive에서 `motion_primitive_length_m * max_progress_advance_ratio`보다 �
 `collision_check_step_m` 간격으로 보간하여 끝점뿐 아니라 중간 pose도 검사한다.
 검사에 사용한 중간 pose 전체를 경로에 보관하지 않고 primitive 끝점만 저장·발행하여
 메모리와 메시지 크기를 줄인다.
+
+`steering_candidates_deg`는 각 상태에서 사용할 전진 조향각의 명시적 목록이다. 단위는
+degree이며 `[-30.0, -15.0, 0.0, 15.0, 30.0]`이면 정확히 다섯 각도만 사용한다. 배열의
+개수·간격·대칭 여부를 코드가 추측하거나 자동 생성하지 않는다. 빈 배열과 유한하지 않은 값,
+`-90°` 이하 또는 `90°` 이상의 값은 시작 시 거부한다. 생성자는 각 항목을 곡률
+`tan(steering) / wheelbase_m`로 한 번 변환하며, Hybrid A*는 상태를 OPEN에서 꺼낼 때
+모든 곡률의 primitive를 한 번씩 검사한다.
 
 `planning_horizon_m`은 centerline을 따라 현재 progress보다 앞선 기준점을 고르는
 거리다. 기준점 하나에 정확히 수렴시키지는 않는다. 해당 기준점에서 centerline의 법선
@@ -474,8 +483,9 @@ grid 근사 때문에 트랙 밖 점을 안으로 허용하지 않는다.
 
 `src/path_planning/config/path_planning.yaml`을 Path Planning의 모든 튜닝 가능한
 파라미터에 대한 단일 기준으로 사용한다. 차량 제원, 안전 여유, 계획 주기와 해상도,
-예상 속도 제한값과 곡률 비용 가중치는 기존 비용식 복원 시 사용할 값으로 유지하며 다른
-소스 파일에 중복 하드코딩하지 않는다.
+명시 조향각 후보 목록과 탐색 상한을 모두 이 파일에서 조정한다. 예상 속도
+제한값과 곡률 비용 가중치는 기존 비용식 복원 시 사용할 값으로 유지하며 다른 소스 파일에
+중복 하드코딩하지 않는다.
 
 노드 시작 과정은 다음과 같다.
 
@@ -506,20 +516,19 @@ path_planning_node:
     vehicle_length_m: 0.28
     wheelbase_m: 0.18
     wheel_track_m: 0.20
-    obstacle_inflation_radius_m: 0.25  # 실측 후 확정
+    obstacle_inflation_radius_m: 0.20
     track_margin_m: 0.20
     track_lookup_resolution_m: 0.05
     planning_rate_hz: 3.0
-    publish_search_tree_debug: false
-    planning_horizon_m: 8.0
+    publish_search_tree_debug: true
+    planning_horizon_m: 5.0
     local_path_length_m: 3.0
-    xy_resolution_m: 0.05
-    yaw_resolution_deg: 5.0
+    xy_resolution_m: 0.10
+    yaw_resolution_deg: 10.0
     collision_check_step_m: 0.025
-    motion_primitive_length_m: 0.20
-    max_steering_angle_deg: 30.0
-    steering_sample_count: 5
-    progress_resolution_m: 0.10
+    motion_primitive_length_m: 0.25
+    steering_candidates_deg: [-30.0, -15.0, 0.0, 15.0, 30.0]
+    progress_resolution_m: 0.20
     goal_longitudinal_tolerance_m: 0.15
     goal_yaw_tolerance_deg: 20.0
     progress_regression_tolerance_m: 0.05
@@ -555,9 +564,8 @@ path_planning_node:
    계획 중에도 pending 요청은 하나를 넘지 않는다.
 4. 장애물 중심점은 최신 선택 odometry pose로 전역 변환한 뒤 양자화 없이 Registry의
    장애물 목록을 교체한다. 이 입력 갱신은 Registry의 기존 경로를 바꾸지 않는다.
-5. 첫 로컬 odometry pose는 RDDF 첫 centerline 점과 첫 segment yaw에 일치하도록
-   `map`으로 변환되고, Registry pose, 장애물, `/path`, SearchTree의 frame은 모두
-   `map`이다.
+5. 선택된 `/pose` 또는 `/odom/calibride`는 `map` frame이어야 하며 Registry pose,
+   장애물, `/path`, SearchTree의 frame도 모두 `map`이다.
 6. 같은 길이의 primitive는 곡률과 곡률 변화에 관계없이 같은 비용이다.
 7. 더 짧은 경로에서 누적 거리 비용이 감소한다.
 8. 유효한 선택 odometry 메시지마다 `/path`를 한 번 발행하고, Raspberry Pi 5에서
@@ -569,6 +577,9 @@ path_planning_node:
     노드의 parent는 `-1`, 나머지 parent는 유효한 index다. 실패하거나
     `publish_search_tree_debug: false`이면 배열을 발행하지 않는다.
 11. Hybrid A* 실패 전후로 Registry의 기존 경로 참조가 바뀌지 않는다.
+12. `steering_candidates_deg`에 적힌 모든 후보를 각 상태에서 빠짐없이 확장한다. 빈 배열,
+    NaN/Inf, `-90°` 이하 또는 `90°` 이상의 값은 노드 시작 시 거부하며 후보 수·간격·대칭은
+    강제하지 않는다.
 
 ## 13. 구현 순서
 

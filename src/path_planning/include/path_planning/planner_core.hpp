@@ -250,8 +250,7 @@ public:
     double progress_resolution_m,
     double primitive_length_m,
     double collision_check_step_m,
-    double max_steering_angle_rad,
-    std::size_t steering_sample_count,
+    std::vector<double> steering_candidates_rad,
     double goal_longitudinal_tolerance_m,
     double goal_yaw_tolerance_rad,
     double progress_regression_tolerance_m,
@@ -272,8 +271,7 @@ private:
   double progress_resolution_{};
   double primitive_length_{};
   double collision_check_step_{};
-  double max_steering_angle_{};
-  std::size_t steering_sample_count_{};
+  std::vector<double> curvatures_;
   double goal_longitudinal_tolerance_{};
   double goal_yaw_tolerance_{};
   double progress_regression_tolerance_{};

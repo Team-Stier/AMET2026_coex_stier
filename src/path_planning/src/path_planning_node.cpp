@@ -347,26 +347,22 @@ public:
     }
 
     track_ = std::make_unique<RddfTrack>(RddfTrack::from_csv(rddf_path.string()));
-    const std::vector<Point2D> & centerline = track_->centerline();
-    map_origin_ = {
-      centerline.front().x,
-      centerline.front().y,
-      std::atan2(
-        centerline[1].y - centerline.front().y,
-        centerline[1].x - centerline.front().x),
-    };
     collision_checker_ = std::make_unique<CollisionChecker>(
       *track_,
       VehicleFootprint(vehicle_length_m_, vehicle_width_m_, wheelbase_m_, wheel_track_m_),
       track_margin_m_, track_lookup_resolution_m_);
     cost_model_ = std::make_unique<CostModel>(
       max_speed_mps_, max_lateral_accel_mps2_, w_curvature_, w_curvature_change_);
+    std::vector<double> steering_candidates_rad;
+    steering_candidates_rad.reserve(steering_candidates_deg_.size());
+    for (const double steering_deg : steering_candidates_deg_) {
+      steering_candidates_rad.push_back(steering_deg * kPi / 180.0);
+    }
     planner_ = std::make_unique<HybridAStarPlanner>(
       *track_, *collision_checker_, *cost_model_, wheelbase_m_, planning_horizon_m_,
       xy_resolution_m_, yaw_resolution_deg_ * kPi / 180.0, progress_resolution_m_,
       motion_primitive_length_m_, collision_check_step_m_,
-      max_steering_angle_deg_ * kPi / 180.0,
-      static_cast<std::size_t>(steering_sample_count_), goal_longitudinal_tolerance_m_,
+      std::move(steering_candidates_rad), goal_longitudinal_tolerance_m_,
       goal_yaw_tolerance_deg_ * kPi / 180.0, progress_regression_tolerance_m_,
       max_progress_advance_ratio_, static_cast<std::size_t>(max_search_nodes_),
       publish_search_tree_debug_);
@@ -387,10 +383,10 @@ public:
       "/object_info", rclcpp::QoS(10),
       std::bind(&PathPlanningNode::on_object_info, this, std::placeholders::_1));
 
-    const std::string selected_odom_topic =
-      use_calibride_odom_ ? "/odom/calibride" : "/odom";
+    const std::string selected_pose_topic =
+      use_calibride_odom_ ? "/odom/calibride" : "/pose";
     odometry_subscription_ = create_subscription<nav_msgs::msg::Odometry>(
-      selected_odom_topic, rclcpp::SensorDataQoS(),
+      selected_pose_topic, rclcpp::SensorDataQoS(),
       std::bind(&PathPlanningNode::on_selected_odometry, this, std::placeholders::_1));
 
     PlanningWorker::AttemptCallback attempt_callback;
@@ -412,7 +408,7 @@ public:
       timer_period, std::bind(&PathPlanningNode::on_planning_timer, this));
 
     RCLCPP_INFO(
-      get_logger(), "using %s with RDDF %s", selected_odom_topic.c_str(),
+      get_logger(), "using %s with RDDF %s", selected_pose_topic.c_str(),
       rddf_path.string().c_str());
   }
 
@@ -455,8 +451,7 @@ public:
     collision_check_step_m_ = required_parameter<double>("collision_check_step_m");
     motion_primitive_length_m_ =
       required_parameter<double>("motion_primitive_length_m");
-    max_steering_angle_deg_ = required_parameter<double>("max_steering_angle_deg");
-    steering_sample_count_ = required_parameter<std::int64_t>("steering_sample_count");
+    steering_candidates_deg_ = required_parameter<std::vector<double>>("steering_candidates_deg");
     progress_resolution_m_ = required_parameter<double>("progress_resolution_m");
     goal_longitudinal_tolerance_m_ =
       required_parameter<double>("goal_longitudinal_tolerance_m");
@@ -492,7 +487,6 @@ private:
     require_positive("yaw_resolution_deg", yaw_resolution_deg_);
     require_positive("collision_check_step_m", collision_check_step_m_);
     require_positive("motion_primitive_length_m", motion_primitive_length_m_);
-    require_positive("max_steering_angle_deg", max_steering_angle_deg_);
     require_positive("progress_resolution_m", progress_resolution_m_);
     require_positive("goal_longitudinal_tolerance_m", goal_longitudinal_tolerance_m_);
     require_positive("goal_yaw_tolerance_deg", goal_yaw_tolerance_deg_);
@@ -504,8 +498,14 @@ private:
     require_nonnegative("w_curvature", w_curvature_);
     require_nonnegative("w_curvature_change", w_curvature_change_);
 
-    if (steering_sample_count_ < 3 || steering_sample_count_ % 2 == 0) {
-      throw std::invalid_argument("steering_sample_count must be odd and at least 3");
+    if (steering_candidates_deg_.empty()) {
+      throw std::invalid_argument("steering_candidates_deg must not be empty");
+    }
+    for (const double steering_deg : steering_candidates_deg_) {
+      if (!std::isfinite(steering_deg) || std::abs(steering_deg) >= 90.0) {
+        throw std::invalid_argument(
+                "steering_candidates_deg values must be finite and between -90 and 90");
+      }
     }
     if (max_search_nodes_ <= 0) {
       throw std::invalid_argument("max_search_nodes must be greater than zero");
@@ -526,15 +526,10 @@ private:
     if (yaw_resolution_deg_ > 180.0 || goal_yaw_tolerance_deg_ > 180.0) {
       throw std::invalid_argument("yaw angles must not exceed 180 degrees");
     }
-    if (max_steering_angle_deg_ >= 90.0) {
-      throw std::invalid_argument("max_steering_angle_deg must be less than 90 degrees");
-    }
-    if (static_cast<std::uint64_t>(steering_sample_count_) >
-      std::numeric_limits<std::size_t>::max() ||
-      static_cast<std::uint64_t>(max_search_nodes_) >
+    if (static_cast<std::uint64_t>(max_search_nodes_) >
       std::numeric_limits<std::size_t>::max())
     {
-      throw std::invalid_argument("integer search parameters exceed size_t");
+      throw std::invalid_argument("max_search_nodes exceeds size_t");
     }
   }
 
@@ -544,7 +539,7 @@ public:
     const auto & position = message->pose.pose.position;
     const std::optional<double> yaw = yaw_from_quaternion(message->pose.pose.orientation);
     if (!std::isfinite(position.x) || !std::isfinite(position.y) || !yaw ||
-      message->header.frame_id.empty())
+      message->header.frame_id != kMapFrameId)
     {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 2000, "discarding invalid selected odometry");
@@ -561,18 +556,8 @@ public:
       return;
     }
 
-    const Pose2D selected_pose{position.x, position.y, *yaw};
-    if (!odom_origin_ && message->header.frame_id != kMapFrameId) {
-      odom_origin_ = selected_pose;
-      RCLCPP_INFO(
-        get_logger(),
-        "aligned %s origin to RDDF start in %s",
-        message->header.frame_id.c_str(), kMapFrameId);
-    }
-
     StampedPose pose;
-    pose.pose = message->header.frame_id == kMapFrameId ?
-      selected_pose : transform_pose_between_frames(selected_pose, *odom_origin_, map_origin_);
+    pose.pose = {position.x, position.y, *yaw};
     pose.stamp = stamp;
     pose.frame_id = kMapFrameId;
     registry_->update_pose(pose);
@@ -672,8 +657,7 @@ private:
   double yaw_resolution_deg_{};
   double collision_check_step_m_{};
   double motion_primitive_length_m_{};
-  double max_steering_angle_deg_{};
-  std::int64_t steering_sample_count_{};
+  std::vector<double> steering_candidates_deg_;
   double progress_resolution_m_{};
   double goal_longitudinal_tolerance_m_{};
   double goal_yaw_tolerance_deg_{};
@@ -684,9 +668,6 @@ private:
   double max_lateral_accel_mps2_{};
   double w_curvature_{};
   double w_curvature_change_{};
-  Pose2D map_origin_{};
-  std::optional<Pose2D> odom_origin_;
-
   std::unique_ptr<RddfTrack> track_;
   std::unique_ptr<CollisionChecker> collision_checker_;
   std::unique_ptr<CostModel> cost_model_;

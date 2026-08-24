@@ -2,9 +2,11 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -21,6 +23,15 @@ RddfTrack square_track()
     {{-2.0, -2.0}, {2.0, -2.0}, {2.0, 2.0}, {-2.0, 2.0}},
     {{-1.0, -1.0}, {1.0, -1.0}, {1.0, 1.0}, {-1.0, 1.0}},
     {{-3.0, -3.0}, {3.0, -3.0}, {3.0, 3.0}, {-3.0, 3.0}});
+}
+
+std::vector<double> steering_candidates()
+{
+  const double radians_per_degree = std::acos(-1.0) / 180.0;
+  return {
+    -30.0 * radians_per_degree, -15.0 * radians_per_degree, 0.0,
+    15.0 * radians_per_degree, 30.0 * radians_per_degree,
+  };
 }
 
 TEST(CoordinateTransformTest, AlignsLocalOdometryOriginAndHeadingToMap)
@@ -122,6 +133,28 @@ TEST(CostModelTest, UsesTravelDistanceOnly)
   EXPECT_NEAR(cost.heuristic(3.0), 3.0, 1.0e-9);
 }
 
+TEST(HybridAStarPlannerTest, ValidatesSteeringCandidates)
+{
+  const RddfTrack track = square_track();
+  const CollisionChecker checker(
+    track, VehicleFootprint(0.28, 0.20, 0.18, 0.20), 0.20, 0.05);
+  const CostModel cost(1.5, 1.5, 1.0, 0.2);
+  const auto make_planner = [&](std::vector<double> candidates) {
+      return HybridAStarPlanner(
+        track, checker, cost,
+        0.18, 1.0,
+        0.05, 5.0 * std::acos(-1.0) / 180.0, 0.05,
+        0.10, 0.025, candidates,
+        0.11, 15.0 * std::acos(-1.0) / 180.0, 0.05, 3.0, 10000, false);
+    };
+
+  EXPECT_NO_THROW(make_planner({0.0}));
+  EXPECT_THROW(make_planner({}), std::invalid_argument);
+  EXPECT_THROW(
+    make_planner({std::numeric_limits<double>::quiet_NaN()}), std::invalid_argument);
+  EXPECT_THROW(make_planner({0.5 * std::acos(-1.0)}), std::invalid_argument);
+}
+
 TEST(HybridAStarPlannerTest, PlansForwardAndPreservesFrameAndTreeYaw)
 {
   const RddfTrack track = square_track();
@@ -132,7 +165,7 @@ TEST(HybridAStarPlannerTest, PlansForwardAndPreservesFrameAndTreeYaw)
     track, checker, cost,
     0.18, 1.0,
     0.05, 5.0 * std::acos(-1.0) / 180.0, 0.05,
-    0.10, 0.025, 30.0 * std::acos(-1.0) / 180.0, 5,
+    0.10, 0.025, steering_candidates(),
     0.11, 15.0 * std::acos(-1.0) / 180.0, 0.05, 3.0, 10000, true);
   PlanningSnapshot snapshot;
   snapshot.pose = {-2.0, -2.0, 0.0};
@@ -147,12 +180,13 @@ TEST(HybridAStarPlannerTest, PlansForwardAndPreservesFrameAndTreeYaw)
   ASSERT_GT(result.path->points.size(), 1U);
   EXPECT_GE(result.path->points.back().progress, 0.89);
   ASSERT_FALSE(result.tree.empty());
+  EXPECT_LE(result.expanded_nodes, result.tree.size());
   ASSERT_GE(result.final_node_index, 0);
   ASSERT_LT(result.final_node_index, static_cast<std::int32_t>(result.tree.size()));
   EXPECT_EQ(result.tree.front().parent_index, -1);
   for (std::size_t i = 1; i < result.tree.size(); ++i) {
     EXPECT_GE(result.tree[i].parent_index, 0);
-    EXPECT_LT(result.tree[i].parent_index, static_cast<std::int32_t>(result.tree.size()));
+    EXPECT_LT(result.tree[i].parent_index, static_cast<std::int32_t>(i));
     EXPECT_GE(result.tree[i].yaw, -std::acos(-1.0));
     EXPECT_LT(result.tree[i].yaw, std::acos(-1.0));
   }
@@ -168,7 +202,7 @@ TEST(HybridAStarPlannerTest, AvoidsObstacleAndSkipsTreeWhenDebugIsDisabled)
     track, checker, cost,
     0.18, 2.0,
     0.05, 5.0 * std::acos(-1.0) / 180.0, 0.05,
-    0.10, 0.025, 30.0 * std::acos(-1.0) / 180.0, 5,
+    0.10, 0.025, steering_candidates(),
     0.11, 20.0 * std::acos(-1.0) / 180.0, 0.05, 3.0, 50000, false);
   const std::vector<Circle> obstacles{{-1.20, -2.0, 0.15}};
 
@@ -181,6 +215,11 @@ TEST(HybridAStarPlannerTest, AvoidsObstacleAndSkipsTreeWhenDebugIsDisabled)
   ASSERT_EQ(result.status, PlanStatus::kSuccess);
   ASSERT_TRUE(result.path.has_value());
   EXPECT_TRUE(result.tree.empty());
+  EXPECT_TRUE(std::any_of(
+      result.path->points.begin(), result.path->points.end(),
+      [](const PathPoint & point) {
+        return std::abs(point.curvature) > 1.0e-9;
+      }));
   for (const PathPoint & point : result.path->points) {
     EXPECT_TRUE(checker.is_pose_valid({point.x, point.y, point.yaw}, obstacles));
   }
@@ -196,7 +235,7 @@ TEST(HybridAStarPlannerTest, FailedPlanDoesNotProduceDebugTree)
     track, checker, cost,
     0.18, 2.0,
     0.05, 5.0 * std::acos(-1.0) / 180.0, 0.05,
-    0.10, 0.025, 30.0 * std::acos(-1.0) / 180.0, 5,
+    0.10, 0.025, steering_candidates(),
     0.11, 15.0 * std::acos(-1.0) / 180.0, 0.05, 3.0, 10000, true);
 
   const PlanAttemptResult missing_pose_result = planner.plan(PlanningSnapshot{});
@@ -212,6 +251,19 @@ TEST(HybridAStarPlannerTest, FailedPlanDoesNotProduceDebugTree)
   EXPECT_EQ(result.status, PlanStatus::kInvalidStart);
   EXPECT_FALSE(result.path.has_value());
   EXPECT_TRUE(result.tree.empty());
+
+  const std::vector<Circle> blocking_obstacle{{-1.65, -2.0, 0.10}};
+  ASSERT_TRUE(checker.is_pose_valid({-2.0, -2.0, 0.0}, blocking_obstacle));
+  PlanningSnapshot blocked_snapshot;
+  blocked_snapshot.pose = Pose2D{-2.0, -2.0, 0.0};
+  blocked_snapshot.obstacles = blocking_obstacle;
+  blocked_snapshot.frame_id = "map";
+  const PlanAttemptResult blocked_result = planner.plan(blocked_snapshot);
+
+  EXPECT_EQ(blocked_result.status, PlanStatus::kFailure);
+  EXPECT_FALSE(blocked_result.path.has_value());
+  EXPECT_TRUE(blocked_result.tree.empty());
+  EXPECT_EQ(blocked_result.expanded_nodes, 1U);
 }
 
 }  // namespace

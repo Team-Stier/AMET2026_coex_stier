@@ -1099,8 +1099,7 @@ HybridAStarPlanner::HybridAStarPlanner(
   double progress_resolution_m,
   double primitive_length_m,
   double collision_check_step_m,
-  double max_steering_angle_rad,
-  std::size_t steering_sample_count,
+  std::vector<double> steering_candidates_rad,
   double goal_longitudinal_tolerance_m,
   double goal_yaw_tolerance_rad,
   double progress_regression_tolerance_m,
@@ -1117,8 +1116,6 @@ HybridAStarPlanner::HybridAStarPlanner(
   progress_resolution_(progress_resolution_m),
   primitive_length_(primitive_length_m),
   collision_check_step_(collision_check_step_m),
-  max_steering_angle_(max_steering_angle_rad),
-  steering_sample_count_(steering_sample_count),
   goal_longitudinal_tolerance_(goal_longitudinal_tolerance_m),
   goal_yaw_tolerance_(goal_yaw_tolerance_rad),
   progress_regression_tolerance_(progress_regression_tolerance_m),
@@ -1133,7 +1130,6 @@ HybridAStarPlanner::HybridAStarPlanner(
   require_positive(progress_resolution_m, "progress resolution");
   require_positive(primitive_length_m, "primitive length");
   require_positive(collision_check_step_m, "collision-check step");
-  require_positive(max_steering_angle_rad, "maximum steering angle");
   require_positive(goal_longitudinal_tolerance_m, "goal longitudinal tolerance");
   require_positive(goal_yaw_tolerance_rad, "goal yaw tolerance");
   require_nonnegative(progress_regression_tolerance_m, "progress regression tolerance");
@@ -1143,14 +1139,19 @@ HybridAStarPlanner::HybridAStarPlanner(
   if (collision_check_step_m > primitive_length_m) {
     throw std::invalid_argument("collision-check step cannot exceed primitive length");
   }
-  if (max_steering_angle_rad >= 0.5 * kPi) {
-    throw std::invalid_argument("maximum steering angle must be below pi/2");
-  }
   if (yaw_resolution_rad > 2.0 * kPi || goal_yaw_tolerance_rad > kPi) {
     throw std::invalid_argument("yaw resolution/tolerance is outside its valid range");
   }
-  if (steering_sample_count < 3U || steering_sample_count % 2U == 0U) {
-    throw std::invalid_argument("steering sample count must be odd and at least three");
+  if (steering_candidates_rad.empty()) {
+    throw std::invalid_argument("steering candidate list must not be empty");
+  }
+  curvatures_.reserve(steering_candidates_rad.size());
+  for (const double steering : steering_candidates_rad) {
+    if (!finite(steering) || std::abs(steering) >= 0.5 * kPi) {
+      throw std::invalid_argument(
+              "steering candidates must be finite and strictly between -pi/2 and pi/2");
+    }
+    curvatures_.push_back(std::tan(steering) / wheelbase_);
   }
   if (max_search_nodes == 0U ||
     max_search_nodes > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()))
@@ -1216,14 +1217,6 @@ PlanAttemptResult HybridAStarPlanner::plan(const PlanningSnapshot & snapshot) co
   }
 
   const GoalGate goal = track_.goal_gate_from(start_progress, planning_horizon_);
-  std::vector<double> curvatures;
-  curvatures.reserve(steering_sample_count_);
-  for (std::size_t i = 0; i < steering_sample_count_; ++i) {
-    const double ratio = static_cast<double>(i) /
-      static_cast<double>(steering_sample_count_ - 1U);
-    const double steering = -max_steering_angle_ + 2.0 * max_steering_angle_ * ratio;
-    curvatures.push_back(std::tan(steering) / wheelbase_);
-  }
 
   std::priority_queue<QueueEntry, std::vector<QueueEntry>, HigherPriority> open;
   std::unordered_map<SearchKey, std::size_t, SearchKeyHash> discovered;
@@ -1259,7 +1252,6 @@ PlanAttemptResult HybridAStarPlanner::plan(const PlanningSnapshot & snapshot) co
     }
     current.closed = true;
     ++expanded;
-
     if (reached_goal(current, goal, goal_longitudinal_tolerance_, goal_yaw_tolerance_)) {
       std::vector<PathPoint> reverse_path;
       std::int32_t index = static_cast<std::int32_t>(entry.index);
@@ -1279,11 +1271,17 @@ PlanAttemptResult HybridAStarPlanner::plan(const PlanningSnapshot & snapshot) co
         static_cast<std::int32_t>(entry.index));
     }
 
+    if (records.size() >= max_search_nodes_) {
+      continue;
+    }
+
     const Pose2D parent_pose = current.pose;
     const double parent_progress = current.progress;
     const double parent_curvature = current.curvature;
     const double parent_cost = current.cost;
-    for (const double curvature : curvatures) {
+    const double maximum_child_progress =
+      parent_progress + primitive_length_ * max_progress_advance_ratio_;
+    for (const double curvature : curvatures_) {
       primitive.clear();
       for (std::size_t step = 1U; step <= interpolation_count; ++step) {
         const double travelled = primitive_length_ * static_cast<double>(step) /
@@ -1298,7 +1296,7 @@ PlanAttemptResult HybridAStarPlanner::plan(const PlanningSnapshot & snapshot) co
       const std::optional<double> child_progress_candidate = track_.progress_within(
         {child_pose.x, child_pose.y},
         parent_progress - progress_regression_tolerance_,
-        parent_progress + primitive_length_ * max_progress_advance_ratio_);
+        maximum_child_progress);
       if (!child_progress_candidate.has_value()) {
         continue;
       }
@@ -1336,8 +1334,8 @@ PlanAttemptResult HybridAStarPlanner::plan(const PlanningSnapshot & snapshot) co
       } else {
         found->second = child_index;
       }
-      const double child_heuristic = heuristic(child_pose, child_progress);
-      open.push({child_cost + child_heuristic, child_cost, child_index});
+      const double child_priority = child_cost + heuristic(child_pose, child_progress);
+      open.push({child_priority, child_cost, child_index});
     }
   }
 
