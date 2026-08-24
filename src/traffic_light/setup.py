@@ -3,6 +3,9 @@ from glob import glob
 from setuptools import find_packages, setup
 
 package_name = "traffic_light"
+model_directories = glob(
+    "models/traffic_light_yolo26n-3/deploy/*_ncnn_model"
+)
 
 setup(
     name=package_name,
@@ -11,14 +14,10 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
-        (
-            "share/"
-            + package_name
-            + "/models/traffic_light_yolo26n-3/deploy/best_ncnn_model",
-            glob(
-                "models/traffic_light_yolo26n-3/deploy/best_ncnn_model/*"
-            ),
-        ),
+    ]
+    + [
+        ("share/" + package_name + "/" + path, glob(path + "/*"))
+        for path in model_directories
     ],
     install_requires=["ncnn", "setuptools", "ultralytics"],
     tests_require=["pytest"],

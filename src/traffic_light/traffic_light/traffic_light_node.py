@@ -10,11 +10,54 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Bool
 from ultralytics import YOLO
+from ultralytics.utils import YAML
 
 
 STOP_CLASS_IDS = {0, 1}
 GREEN_CLASS_ID = 2
 EXPECTED_NAMES = {0: "red", 1: "yellow", 2: "green"}
+
+
+def read_model_image_size(model_path: Path) -> int:
+    metadata_path = model_path / "metadata.yaml"
+    if not metadata_path.is_file():
+        raise FileNotFoundError(f"NCNN metadata not found: {metadata_path}")
+
+    image_size = YAML.load(metadata_path).get("imgsz")
+    if (
+        not isinstance(image_size, (list, tuple))
+        or len(image_size) != 2
+        or image_size[0] != image_size[1]
+    ):
+        raise ValueError(
+            f"expected a square NCNN image size in {metadata_path}; "
+            f"got {image_size}"
+        )
+    return int(image_size[0])
+
+
+def resolve_model_image_size(
+    model_path: Path, requested_image_size: int
+) -> int:
+    model_image_size = read_model_image_size(model_path)
+    if requested_image_size not in (0, model_image_size):
+        raise ValueError(
+            f"image_size={requested_image_size} does not match the fixed "
+            f"NCNN model size {model_image_size}: {model_path}"
+        )
+    return model_image_size
+
+
+def make_debug_image(frame, source_image: CompressedImage):
+    encoded_ok, encoded_frame = cv2.imencode(".jpg", frame)
+    if not encoded_ok:
+        return None
+
+    debug_image = CompressedImage()
+    debug_image.header = source_image.header
+    debug_image.format = "jpeg"
+    debug_image.data = encoded_frame.tobytes()
+    return debug_image
 
 
 class GoSignDecision:
@@ -46,7 +89,7 @@ class TrafficLightNode(Node):
             / "models"
             / "traffic_light_yolo26n-3"
             / "deploy"
-            / "best_ncnn_model"
+            / "traffic_light_384_ncnn_model"
         )
         model_path = Path(
             self.declare_parameter("model_path", str(default_model_path)).value
@@ -54,22 +97,29 @@ class TrafficLightNode(Node):
         self.confidence = float(
             self.declare_parameter("confidence", 0.5).value
         )
-        self.image_size = int(self.declare_parameter("image_size", 640).value)
+        requested_image_size = int(
+            self.declare_parameter("image_size", 0).value
+        )
         required_green_frames = int(
             self.declare_parameter("green_confirm_frames", 3).value
         )
         self.image_timeout_seconds = float(
             self.declare_parameter("image_timeout_seconds", 1.0).value
         )
+        self.visualizer_enabled = bool(
+            self.declare_parameter("visualizer_enabled", False).value
+        )
 
         if not model_path.is_dir():
             raise FileNotFoundError(f"NCNN model directory not found: {model_path}")
         if not 0.0 < self.confidence <= 1.0:
             raise ValueError("confidence must be in the range (0, 1]")
-        if self.image_size < 1:
-            raise ValueError("image_size must be positive")
         if self.image_timeout_seconds <= 0.0:
             raise ValueError("image_timeout_seconds must be positive")
+
+        self.image_size = resolve_model_image_size(
+            model_path, requested_image_size
+        )
 
         self.model = YOLO(model_path, task="detect")
         if self.model.names != EXPECTED_NAMES:
@@ -87,6 +137,15 @@ class TrafficLightNode(Node):
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
         )
+        self.visualizer_pub = (
+            self.create_publisher(
+                CompressedImage,
+                "/traffic_light/debug/compressed",
+                image_qos,
+            )
+            if self.visualizer_enabled
+            else None
+        )
         self.image_sub = self.create_subscription(
             CompressedImage,
             "/camera/image_raw/compressed",
@@ -94,7 +153,14 @@ class TrafficLightNode(Node):
             image_qos,
         )
         self.watchdog = self.create_timer(0.1, self.on_watchdog)
-        self.get_logger().info(f"loaded traffic-light model: {model_path}")
+        self.get_logger().info(
+            f"loaded traffic-light model: {model_path} "
+            f"({self.image_size}x{self.image_size})"
+        )
+        if self.visualizer_enabled:
+            self.get_logger().info(
+                "publishing visualizations on /traffic_light/debug/compressed"
+            )
 
     def publish_gosign(self, allowed: bool) -> None:
         message = Bool()
@@ -127,6 +193,18 @@ class TrafficLightNode(Node):
             self.get_logger().error(f"traffic-light inference failed: {error}")
             self.publish_stop()
             return
+
+        if self.visualizer_pub is not None:
+            try:
+                debug_image = make_debug_image(result.plot(), image)
+                if debug_image is None:
+                    self.get_logger().error("failed to encode visualization")
+                else:
+                    self.visualizer_pub.publish(debug_image)
+            except Exception as error:
+                self.get_logger().error(
+                    f"traffic-light visualization failed: {error}"
+                )
 
         class_ids = (
             [int(class_id) for class_id in result.boxes.cls.tolist()]
