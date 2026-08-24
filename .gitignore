@@ -25,4 +25,5 @@ compile_commands.json
 
 # ROS bag recordings
 records/mapping/
+records/calibration/
 src/calibration/rosbags/

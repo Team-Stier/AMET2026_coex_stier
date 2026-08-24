@@ -17,8 +17,8 @@ def generate_launch_description():
             ),
             Node(
                 package="calibration",
-                executable="sim_rviz_bridge",
-                name="calibration_sim_rviz_bridge",
+                executable="fence_rviz_bridge",
+                name="calibration_fence_rviz_bridge",
                 output="screen",
             ),
             Node(

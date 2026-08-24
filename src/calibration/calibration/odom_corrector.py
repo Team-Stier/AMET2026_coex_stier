@@ -17,6 +17,20 @@ class CorrectionResult:
     match_count: int
 
 
+def is_meaningful_correction(
+    correction: CorrectionResult,
+    *,
+    minimum_lateral_m: float,
+    use_yaw: bool,
+    minimum_yaw_rad: float = 1.0e-3,
+) -> bool:
+    """Return whether a lane observation should replace the held target."""
+    return (
+        abs(correction.lateral_m) >= minimum_lateral_m
+        or (use_yaw and abs(correction.yaw_rad) >= minimum_yaw_rad)
+    )
+
+
 @dataclass(frozen=True)
 class MatchDiagnostics:
     observed_odom: np.ndarray
@@ -27,6 +41,61 @@ class MatchDiagnostics:
     tangent_angle_rad: np.ndarray
     keep: np.ndarray
     residual_m: np.ndarray
+
+
+class CorrectionQualityGate:
+    """Accept only moving, geometrically sound, temporally consistent corrections."""
+
+    def __init__(
+        self,
+        *,
+        minimum_speed_m_s: float,
+        maximum_rms_error_m: float,
+        maximum_abs_lateral_m: float,
+        maximum_abs_yaw_rad: float,
+        maximum_lateral_jump_m: float,
+        maximum_yaw_jump_rad: float,
+        required_consistent_measurements: int,
+    ) -> None:
+        self.minimum_speed_m_s = minimum_speed_m_s
+        self.maximum_rms_error_m = maximum_rms_error_m
+        self.maximum_abs_lateral_m = maximum_abs_lateral_m
+        self.maximum_abs_yaw_rad = maximum_abs_yaw_rad
+        self.maximum_lateral_jump_m = maximum_lateral_jump_m
+        self.maximum_yaw_jump_rad = maximum_yaw_jump_rad
+        self.required_consistent_measurements = max(1, required_consistent_measurements)
+        self.reset()
+
+    def reset(self) -> None:
+        self._candidate: CorrectionResult | None = None
+        self._consistent_count = 0
+
+    def accept(self, correction: CorrectionResult, speed_m_s: float) -> bool:
+        valid = (
+            speed_m_s >= self.minimum_speed_m_s
+            and correction.rms_error_m <= self.maximum_rms_error_m
+            and (
+                self.maximum_abs_lateral_m <= 0.0
+                or abs(correction.lateral_m) <= self.maximum_abs_lateral_m
+            )
+            and (
+                self.maximum_abs_yaw_rad <= 0.0
+                or abs(correction.yaw_rad) <= self.maximum_abs_yaw_rad
+            )
+        )
+        if not valid:
+            self.reset()
+            return False
+        consistent = (
+            self._candidate is not None
+            and abs(correction.lateral_m - self._candidate.lateral_m)
+            <= self.maximum_lateral_jump_m
+            and abs(correction.yaw_rad - self._candidate.yaw_rad)
+            <= self.maximum_yaw_jump_rad
+        )
+        self._consistent_count = self._consistent_count + 1 if consistent else 1
+        self._candidate = correction
+        return self._consistent_count >= self.required_consistent_measurements
 
 
 def load_centerline_csv(path: str) -> np.ndarray:
@@ -85,7 +154,7 @@ def fit_local_line_directions(
 
 
 class LaneOdomCorrector:
-    """Estimate bounded lateral/yaw corrections with geometric map matching."""
+    """Estimate lateral/yaw residuals with geometric map matching."""
 
     def __init__(
         self,
@@ -217,13 +286,15 @@ class LaneOdomCorrector:
                 )
             except np.linalg.LinAlgError:
                 return None
-            lateral = float(
-                np.clip(
-                    lateral + increment[0],
-                    -self.maximum_lateral_correction_m,
-                    self.maximum_lateral_correction_m,
+            lateral = float(lateral + increment[0])
+            if self.maximum_lateral_correction_m > 0.0:
+                lateral = float(
+                    np.clip(
+                        lateral,
+                        -self.maximum_lateral_correction_m,
+                        self.maximum_lateral_correction_m,
+                    )
                 )
-            )
             yaw = float(
                 np.clip(
                     yaw + increment[1],

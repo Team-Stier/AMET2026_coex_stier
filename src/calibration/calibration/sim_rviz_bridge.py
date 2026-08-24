@@ -15,6 +15,7 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import ColorRGBA
+from tf2_msgs.msg import TFMessage
 from tf2_ros import StaticTransformBroadcaster
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -41,6 +42,7 @@ class SimRvizBridge(Node):
         self.declare_parameter("map_lane_hsv_upper", [32, 255, 255])
         self.declare_parameter("sim_state_url", "http://localhost/sim/api/state")
         self.declare_parameter("truth_poll_hz", 5.0)
+        self.declare_parameter("truth_topic", "")
         self.declare_parameter("maximum_path_points", 1500)
 
         self.map_frame = str(self.get_parameter("map_frame").value)
@@ -90,8 +92,12 @@ class SimRvizBridge(Node):
             self.on_observed_lane,
             10,
         )
-        poll_hz = max(0.5, float(self.get_parameter("truth_poll_hz").value))
-        self.create_timer(1.0 / poll_hz, self.poll_truth)
+        truth_topic = str(self.get_parameter("truth_topic").value)
+        if truth_topic:
+            self.create_subscription(TFMessage, truth_topic, self.on_truth_tf, 50)
+        else:
+            poll_hz = max(0.5, float(self.get_parameter("truth_poll_hz").value))
+            self.create_timer(1.0 / poll_hz, self.poll_truth)
         self.create_timer(1.0, self.publish_map)
         self.map_marker, self.map_lane_marker = self._create_map_markers()
         self.publish_map()
@@ -237,6 +243,27 @@ class SimRvizBridge(Node):
                 throttle_duration_sec=2.0,
             )
             return
+        self._try_bootstrap_tf()
+        self._append_path(self.truth_path, self.latest_truth)
+        self.truth_path_pub.publish(self.truth_path)
+        self._publish_pose_markers()
+
+    def on_truth_tf(self, message: TFMessage) -> None:
+        """Consume simulator-world truth recorded in a calibration rosbag."""
+        if not message.transforms:
+            return
+        transform = message.transforms[0].transform
+        yaw = math.atan2(
+            2.0 * (transform.rotation.w * transform.rotation.z
+                   + transform.rotation.x * transform.rotation.y),
+            1.0 - 2.0 * (transform.rotation.y * transform.rotation.y
+                         + transform.rotation.z * transform.rotation.z),
+        )
+        self.latest_truth = (
+            float(transform.translation.x),
+            float(transform.translation.y),
+            yaw,
+        )
         self._try_bootstrap_tf()
         self._append_path(self.truth_path, self.latest_truth)
         self.truth_path_pub.publish(self.truth_path)

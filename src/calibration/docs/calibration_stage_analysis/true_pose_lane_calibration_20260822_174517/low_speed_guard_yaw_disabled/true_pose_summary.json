@@ -1,0 +1,35 @@
+{
+  "configuration": {
+    "minimum_correction_speed_m_s": 0.1,
+    "maximum_correction_rms_error_m": 0.25,
+    "use_lane_yaw_correction": false
+  },
+  "sample_count": 8068,
+  "raw_position_error_m": {
+    "mean": 0.29841322338074094,
+    "rmse": 0.3153110064436953,
+    "p95": 0.3973287446207763,
+    "max": 0.4178779213435098
+  },
+  "ekf_position_error_m": {
+    "mean": 0.25259432287378963,
+    "rmse": 0.272493556918881,
+    "p95": 0.40166776244736413,
+    "max": 0.5298425789048204
+  },
+  "raw_yaw_error_deg": {
+    "mean": 1.526328240626663,
+    "rmse": 1.9547705804740583,
+    "p95": 3.703238375868974,
+    "max": 5.1350352776353985
+  },
+  "ekf_yaw_error_deg": {
+    "mean": 1.5324785899367035,
+    "rmse": 1.9566821321852041,
+    "p95": 3.6856231770457577,
+    "max": 5.255120786909782
+  },
+  "position_improved_samples": 4143,
+  "position_worsened_samples": 2183,
+  "initial_75s_output_equals_raw": true
+}

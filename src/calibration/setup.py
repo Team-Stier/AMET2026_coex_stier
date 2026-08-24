@@ -32,6 +32,7 @@ setup(
     entry_points={
         "console_scripts": [
             "calibration_node = calibration.calibration_node:main",
+            "fence_rviz_bridge = calibration.fence_rviz_bridge:main",
             "sim_rviz_bridge = calibration.sim_rviz_bridge:main",
         ],
     },

@@ -19,6 +19,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import rclpy
+from geometry_msgs.msg import PoseStamped
+from tf2_msgs.msg import TFMessage
 
 from calibration.calibration_node import CalibrationNode
 from calibration.pose_geometry import (
@@ -28,7 +30,11 @@ from calibration.pose_geometry import (
 )
 
 
-MAP_FROM_ODOM = (1.3955951074258404, 3.4053781750000933, -1.5687430396611617)
+DEFAULT_MAP_FROM_ODOM = (
+    1.3955951074258404,
+    3.4053781750000933,
+    -1.5687430396611617,
+)
 SNAPSHOT_TIMES_SEC = (0.0, 100.0, 200.0, 300.0, 400.0)
 
 
@@ -42,10 +48,27 @@ def load_waypoints(repository: Path) -> np.ndarray:
 
 
 def transform_to_map(point: np.ndarray) -> np.ndarray:
-    tx, ty, yaw = MAP_FROM_ODOM
+    configured = os.environ.get("CALIBRATION_MAP_FROM_ODOM", "")
+    if configured:
+        values = tuple(float(value.strip()) for value in configured.split(","))
+        if len(values) != 3:
+            raise ValueError("CALIBRATION_MAP_FROM_ODOM must contain tx,ty,yaw")
+        tx, ty, yaw = values
+    else:
+        tx, ty, yaw = DEFAULT_MAP_FROM_ODOM
     cosine, sine = math.cos(yaw), math.sin(yaw)
     rotation = np.asarray([[cosine, -sine], [sine, cosine]])
     return point @ rotation.T + np.asarray([tx, ty])
+
+
+def map_from_odom_yaw() -> float:
+    configured = os.environ.get("CALIBRATION_MAP_FROM_ODOM", "")
+    if configured:
+        values = tuple(float(value.strip()) for value in configured.split(","))
+        if len(values) != 3:
+            raise ValueError("CALIBRATION_MAP_FROM_ODOM must contain tx,ty,yaw")
+        return values[2]
+    return DEFAULT_MAP_FROM_ODOM[2]
 
 
 def polyline_distances(points: np.ndarray, waypoints: np.ndarray) -> np.ndarray:
@@ -80,12 +103,43 @@ class StageAnalyzer(CalibrationNode):
         self.first_stamp: float | None = None
         self.last_sample_wall = time.monotonic()
         self.finished = False
+        self.latest_truth: tuple[float, float, float, float] | None = None
+        truth_topic = os.environ.get("CALIBRATION_TRUTH_TOPIC", "")
+        if truth_topic:
+            if os.environ.get("CALIBRATION_TRUTH_TYPE", "pose") == "tf":
+                self.create_subscription(TFMessage, truth_topic, self.on_truth_tf, 50)
+            else:
+                self.create_subscription(PoseStamped, truth_topic, self.on_truth_pose, 20)
         self.initial_yaw_hold_sec = float(
             os.environ.get("CALIBRATION_INITIAL_YAW_HOLD_SEC", "0.0")
         )
         self.lateral_only_ekf = copy.deepcopy(self.correction_ekf)
+        self.lateral_bias_m = float(
+            os.environ.get("CALIBRATION_LATERAL_BIAS_M", "0.0")
+        )
+        self.bias_removed_ekf = copy.deepcopy(self.correction_ekf)
+        self.lateral_disabled_ekf = copy.deepcopy(self.correction_ekf)
         self.lateral_only_last_odom_time_sec: float | None = None
         self.create_timer(1.0, self._check_finished)
+
+    def on_truth_pose(self, message: PoseStamped) -> None:
+        self.latest_truth = (
+            stamp_seconds(message.header.stamp),
+            float(message.pose.position.x),
+            float(message.pose.position.y),
+            self._yaw_from_quaternion(message.pose.orientation),
+        )
+
+    def on_truth_tf(self, message: TFMessage) -> None:
+        if not message.transforms:
+            return
+        transform = message.transforms[0]
+        self.latest_truth = (
+            stamp_seconds(transform.header.stamp),
+            float(transform.transform.translation.x),
+            float(transform.transform.translation.y),
+            self._yaw_from_quaternion(transform.transform.rotation),
+        )
 
     def relative_time(self, stamp) -> float:
         value = stamp_seconds(stamp)
@@ -147,6 +201,13 @@ class StageAnalyzer(CalibrationNode):
             pose_covariance=message.pose.covariance,
             twist_covariance=message.twist.covariance,
         )
+        for experiment_ekf in (self.bias_removed_ekf, self.lateral_disabled_ekf):
+            experiment_ekf.predict(
+                raw_pose,
+                lateral_only_dt,
+                pose_covariance=message.pose.covariance,
+                twist_covariance=message.twist.covariance,
+            )
         super().on_odometry(message)
         elapsed = self.relative_time(message.header.stamp)
         correction_stamp = self.latest_correction_stamp
@@ -171,9 +232,26 @@ class StageAnalyzer(CalibrationNode):
                 rms_error_m=correction.rms_error_m,
                 match_count=correction.match_count,
             )
+            for experiment_ekf, experiment_lateral in (
+                (self.bias_removed_ekf, correction.lateral_m - self.lateral_bias_m),
+                (self.lateral_disabled_ekf, 0.0),
+            ):
+                experiment_transform = transform_from_local_correction(
+                    raw_pose, experiment_lateral, correction.yaw_rad
+                )
+                experiment_pose = transform_pose_2d(raw_pose, experiment_transform)
+                experiment_ekf.correct(
+                    experiment_pose,
+                    rms_error_m=correction.rms_error_m,
+                    match_count=correction.match_count,
+                )
         self.lateral_only_ekf.advance_output(lateral_only_dt)
+        self.bias_removed_ekf.advance_output(lateral_only_dt)
+        self.lateral_disabled_ekf.advance_output(lateral_only_dt)
         output_pose = self.correction_ekf.output_pose or raw_pose
         lateral_only_pose = self.lateral_only_ekf.output_pose or raw_pose
+        bias_removed_pose = self.bias_removed_ekf.output_pose or raw_pose
+        lateral_disabled_pose = self.lateral_disabled_ekf.output_pose or raw_pose
         raw_map = transform_to_map(np.asarray([[raw_pose[0], raw_pose[1]]]))[0]
         corrected_map = transform_to_map(
             np.asarray([[output_pose[0], output_pose[1]]])
@@ -181,11 +259,48 @@ class StageAnalyzer(CalibrationNode):
         lateral_only_map = transform_to_map(
             np.asarray([[lateral_only_pose[0], lateral_only_pose[1]]])
         )[0]
+        bias_removed_map = transform_to_map(
+            np.asarray([[bias_removed_pose[0], bias_removed_pose[1]]])
+        )[0]
+        lateral_disabled_map = transform_to_map(
+            np.asarray([[lateral_disabled_pose[0], lateral_disabled_pose[1]]])
+        )[0]
         raw_error = polyline_distances(raw_map[None, :], self.waypoints)[0]
         corrected_error = polyline_distances(corrected_map[None, :], self.waypoints)[0]
         lateral_only_error = polyline_distances(
             lateral_only_map[None, :], self.waypoints
         )[0]
+        raw_true_error = math.nan
+        corrected_true_error = math.nan
+        raw_true_yaw_error = math.nan
+        corrected_true_yaw_error = math.nan
+        bias_removed_true_error = math.nan
+        lateral_disabled_true_error = math.nan
+        truth_age_sec = math.nan
+        if self.latest_truth is not None:
+            truth_age_sec = abs(
+                stamp_seconds(message.header.stamp)
+                - self.latest_truth[0]
+            )
+            if truth_age_sec <= 0.10:
+                truth_xy = np.asarray(
+                    [self.latest_truth[1], self.latest_truth[2]], dtype=np.float64
+                )
+                truth_yaw = self.latest_truth[3]
+                raw_true_error = float(np.linalg.norm(raw_map - truth_xy))
+                corrected_true_error = float(np.linalg.norm(corrected_map - truth_xy))
+                bias_removed_true_error = float(
+                    np.linalg.norm(bias_removed_map - truth_xy)
+                )
+                lateral_disabled_true_error = float(
+                    np.linalg.norm(lateral_disabled_map - truth_xy)
+                )
+                raw_map_yaw = normalize_angle(raw_pose[2] + map_from_odom_yaw())
+                corrected_map_yaw = normalize_angle(output_pose[2] + map_from_odom_yaw())
+                raw_true_yaw_error = abs(normalize_angle(raw_map_yaw - truth_yaw))
+                corrected_true_yaw_error = abs(
+                    normalize_angle(corrected_map_yaw - truth_yaw)
+                )
         covariance = self.correction_ekf.output_covariance()
         lag = (
             self.correction_ekf.state - self.correction_ekf.output_state
@@ -209,6 +324,13 @@ class StageAnalyzer(CalibrationNode):
                 "lateral_only_y": lateral_only_pose[1],
                 "lateral_only_yaw": lateral_only_pose[2],
                 "lateral_only_waypoint_error_m": lateral_only_error,
+                "truth_age_sec": truth_age_sec,
+                "raw_true_error_m": raw_true_error,
+                "corrected_true_error_m": corrected_true_error,
+                "raw_true_yaw_error_rad": raw_true_yaw_error,
+                "corrected_true_yaw_error_rad": corrected_true_yaw_error,
+                "bias_removed_true_error_m": bias_removed_true_error,
+                "lateral_disabled_true_error_m": lateral_disabled_true_error,
                 "p_x": covariance[0, 0],
                 "p_y": covariance[1, 1],
                 "p_yaw": covariance[2, 2],
@@ -448,9 +570,12 @@ def plot_ekf(node: StageAnalyzer) -> None:
     axes[2].plot(tp, [row["lag_position_m"] for row in poses], label="position lag", lw=0.8)
     axes[2].plot(tp, [row["lag_yaw_rad"] for row in poses], label="yaw lag [rad]", lw=0.8)
     axes[2].set_ylabel("EKF target-output lag"); axes[2].legend()
-    axes[3].plot(tp, [row["raw_waypoint_error_m"] for row in poses], color="red", label="RAW", lw=0.7)
-    axes[3].plot(tp, [row["corrected_waypoint_error_m"] for row in poses], color="#00bcd4", label="EKF", lw=0.7)
-    axes[3].set_ylabel("Waypoint distance [m]"); axes[3].set_xlabel("Time [s]"); axes[3].legend()
+    use_truth = any(np.isfinite(row.get("raw_true_error_m", math.nan)) for row in poses)
+    error_key_raw = "raw_true_error_m" if use_truth else "raw_waypoint_error_m"
+    error_key_ekf = "corrected_true_error_m" if use_truth else "corrected_waypoint_error_m"
+    axes[3].plot(tp, [row[error_key_raw] for row in poses], color="red", label="RAW", lw=0.7)
+    axes[3].plot(tp, [row[error_key_ekf] for row in poses], color="#00bcd4", label="EKF", lw=0.7)
+    axes[3].set_ylabel("True position error [m]" if use_truth else "Waypoint distance [m]"); axes[3].set_xlabel("Time [s]"); axes[3].legend()
     for axis in axes:
         axis.grid(alpha=0.25)
     figure.suptitle("Stage 7: EKF gain, uncertainty, rate-limit lag, and final error")
@@ -461,13 +586,18 @@ def plot_ekf(node: StageAnalyzer) -> None:
 def plot_final_effect(node: StageAnalyzer) -> None:
     poses = node.pose_rows
     t = np.asarray([row["time_sec"] for row in poses])
-    raw = np.asarray([row["raw_waypoint_error_m"] for row in poses])
-    corrected = np.asarray([row["corrected_waypoint_error_m"] for row in poses])
+    use_truth = any(np.isfinite(row.get("raw_true_error_m", math.nan)) for row in poses)
+    raw_key = "raw_true_error_m" if use_truth else "raw_waypoint_error_m"
+    corrected_key = "corrected_true_error_m" if use_truth else "corrected_waypoint_error_m"
+    valid_poses = [row for row in poses if np.isfinite(row.get(raw_key, math.nan))]
+    t = np.asarray([row["time_sec"] for row in valid_poses])
+    raw = np.asarray([row[raw_key] for row in valid_poses])
+    corrected = np.asarray([row[corrected_key] for row in valid_poses])
     improvement = raw - corrected
     figure, axes = plt.subplots(2, 1, figsize=(16, 8), sharex=True, constrained_layout=True)
     axes[0].plot(t, raw, color="red", label="RAW odom", lw=0.7)
     axes[0].plot(t, corrected, color="#00bcd4", label="EKF corrected", lw=0.7)
-    axes[0].set_ylabel("Waypoint distance [m]")
+    axes[0].set_ylabel("True position error [m]" if use_truth else "Waypoint distance [m]")
     axes[0].legend()
     axes[1].fill_between(t, 0.0, improvement, where=improvement >= 0.0,
                          color="#2ca02c", alpha=0.65, label="improved")
@@ -479,8 +609,14 @@ def plot_final_effect(node: StageAnalyzer) -> None:
     axes[1].legend()
     for axis in axes:
         axis.grid(alpha=0.25)
-    figure.suptitle("Stage 8: final waypoint-distance effect (positive means improvement)")
-    figure.savefig(node.output_dir / "08_final_waypoint_effect.png", dpi=160)
+    basis = "true-position" if use_truth else "waypoint-distance"
+    figure.suptitle(f"Stage 8: final {basis} effect (positive means improvement)")
+    output_name = (
+        "08_final_true_pose_effect.png"
+        if use_truth
+        else "08_final_waypoint_effect.png"
+    )
+    figure.savefig(node.output_dir / output_name, dpi=160)
     plt.close(figure)
 
 
@@ -539,30 +675,53 @@ def plot_initial_lateral_only_experiment(node: StageAnalyzer) -> None:
     )
 
 
-def plot_final_effect(node: StageAnalyzer) -> None:
-    poses = node.pose_rows
-    t = np.asarray([row["time_sec"] for row in poses])
-    raw = np.asarray([row["raw_waypoint_error_m"] for row in poses])
-    corrected = np.asarray([row["corrected_waypoint_error_m"] for row in poses])
-    improvement = raw - corrected
-    figure, axes = plt.subplots(2, 1, figsize=(16, 8), sharex=True, constrained_layout=True)
-    axes[0].plot(t, raw, color="red", label="RAW odom", lw=0.7)
-    axes[0].plot(t, corrected, color="#00bcd4", label="EKF corrected", lw=0.7)
-    axes[0].set_ylabel("Waypoint distance [m]")
-    axes[0].legend()
-    axes[1].fill_between(t, 0.0, improvement, where=improvement >= 0.0,
-                         color="#2ca02c", alpha=0.65, label="improved")
-    axes[1].fill_between(t, 0.0, improvement, where=improvement < 0.0,
-                         color="#d62728", alpha=0.65, label="worsened")
-    axes[1].axhline(0.0, color="black", lw=0.8)
-    axes[1].set_ylabel("RAW - EKF [m]")
-    axes[1].set_xlabel("Time [s]")
-    axes[1].legend()
-    for axis in axes:
-        axis.grid(alpha=0.25)
-    figure.suptitle("Stage 8: final waypoint-distance effect (positive means improvement)")
-    figure.savefig(node.output_dir / "08_final_waypoint_effect.png", dpi=160)
+def plot_initial_lateral_bias_experiment(node: StageAnalyzer) -> None:
+    if node.lateral_bias_m <= 0.0:
+        return
+    rows = [
+        row for row in node.pose_rows
+        if np.isfinite(row.get("raw_true_error_m", math.nan))
+    ]
+    t = np.asarray([row["time_sec"] for row in rows])
+    series = {
+        "RAW": np.asarray([row["raw_true_error_m"] for row in rows]),
+        "current lateral": np.asarray(
+            [row["corrected_true_error_m"] for row in rows]
+        ),
+        f"lateral - {node.lateral_bias_m:.3f} m": np.asarray(
+            [row["bias_removed_true_error_m"] for row in rows]
+        ),
+        "lateral disabled": np.asarray(
+            [row["lateral_disabled_true_error_m"] for row in rows]
+        ),
+    }
+    figure, axis = plt.subplots(figsize=(16, 7), constrained_layout=True)
+    colors = ("red", "#00bcd4", "#2ca02c", "#9467bd")
+    for (label, values), color in zip(series.items(), colors):
+        axis.plot(t, values, label=label, color=color, lw=0.9)
+    axis.set_xlabel("Time [s]")
+    axis.set_ylabel("Simulator true position error [m]")
+    axis.grid(alpha=0.25)
+    axis.legend()
+    figure.suptitle("Initial lateral-bias isolation with identical lane yaw correction")
+    figure.savefig(node.output_dir / "09_initial_lateral_bias_experiment.png", dpi=160)
     plt.close(figure)
+
+    def metrics(values: np.ndarray) -> dict[str, float]:
+        return {
+            "mean_m": float(np.mean(values)),
+            "rmse_m": float(np.sqrt(np.mean(values * values))),
+            "p95_m": float(np.percentile(values, 95)),
+            "max_m": float(np.max(values)),
+        }
+    result = {
+        "lateral_bias_removed_m": node.lateral_bias_m,
+        "sample_count": len(rows),
+        "metrics": {label: metrics(values) for label, values in series.items()},
+    }
+    (node.output_dir / "09_initial_lateral_bias_experiment.json").write_text(
+        json.dumps(result, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def summarize(node: StageAnalyzer, map_difference: dict[str, float]) -> dict[str, object]:
@@ -572,10 +731,6 @@ def summarize(node: StageAnalyzer, map_difference: dict[str, float]) -> dict[str
     raw = np.asarray([row["raw_waypoint_error_m"] for row in poses])
     corrected = np.asarray([row["corrected_waypoint_error_m"] for row in poses])
     successful = [row for row in matches if row["success"] > 0.5]
-    successful_lateral = np.abs([row["lateral_m"] for row in successful])
-    successful_yaw = np.abs([row["yaw_correction_rad"] for row in successful])
-    successful_rms = np.asarray([row["rms_error_m"] for row in successful])
-    improvement = raw - corrected
     large_error_improvement = improvement[raw > 0.20]
     successful_lateral = np.abs([row["lateral_m"] for row in successful])
     successful_yaw = np.abs([row["yaw_correction_rad"] for row in successful])
@@ -606,10 +761,6 @@ def summarize(node: StageAnalyzer, map_difference: dict[str, float]) -> dict[str
             "yaw_saturation_count": int(np.sum(successful_yaw >= 0.118)),
             "rms_over_0_10m_count": int(np.sum(successful_rms > 0.10)),
             "rms_over_0_20m_count": int(np.sum(successful_rms > 0.20)),
-            "lateral_saturation_count": int(np.sum(successful_lateral >= 0.195)),
-            "yaw_saturation_count": int(np.sum(successful_yaw >= 0.118)),
-            "rms_over_0_10m_count": int(np.sum(successful_rms > 0.10)),
-            "rms_over_0_20m_count": int(np.sum(successful_rms > 0.20)),
         },
         "waypoint_lane_map": map_difference,
         "waypoint_error_raw": metric(raw),
@@ -623,13 +774,6 @@ def summarize(node: StageAnalyzer, map_difference: dict[str, float]) -> dict[str
                 if len(large_error_improvement)
                 else None
             ),
-            "mean_improvement_when_raw_at_most_0_10m": float(np.mean(improvement[raw <= 0.10])),
-        },
-        "final_effect": {
-            "improved_samples": int(np.sum(improvement > 0.0)),
-            "worsened_samples": int(np.sum(improvement < 0.0)),
-            "mean_improvement_m": float(np.mean(improvement)),
-            "mean_improvement_when_raw_over_0_20m": float(np.mean(improvement[raw > 0.20])),
             "mean_improvement_when_raw_at_most_0_10m": float(np.mean(improvement[raw <= 0.10])),
         },
         "sample_count": len(poses),
@@ -665,6 +809,7 @@ def main() -> None:
     plot_ekf(node)
     plot_final_effect(node)
     plot_initial_lateral_only_experiment(node)
+    plot_initial_lateral_bias_experiment(node)
     plot_final_effect(node)
     summary = summarize(node, map_difference)
     (output_dir / "summary.json").write_text(

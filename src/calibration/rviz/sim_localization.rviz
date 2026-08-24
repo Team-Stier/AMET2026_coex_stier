@@ -1,8 +1,4 @@
-Panels:
-  - Class: rviz_common/Displays
-    Name: Displays
-  - Class: rviz_common/Views
-    Name: Views
+Panels: []
 Visualization Manager:
   Class: ""
   Displays:
@@ -17,37 +13,28 @@ Visualization Manager:
       Reference Frame: map
     - Class: rviz_default_plugins/Marker
       Enabled: true
-      Name: Calibrated Color Map
+      Name: Four-Line Fence Reference
       Topic:
         Depth: 1
         Durability Policy: Transient Local
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /calibration/rviz/map
+        Value: /calibration/rviz/fence
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
-      Name: Raw Corrected Truth
+      Name: Current Pose Comparison
       Topic:
         Depth: 10
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /calibration/rviz/poses
-    - Class: rviz_default_plugins/Marker
-      Enabled: true
-      Name: Observed Lane Points
-      Topic:
-        Depth: 10
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /calibration/rviz/observed_lane
     - Class: rviz_default_plugins/Path
-      Color: 255; 40; 40
+      Color: 255; 31; 31
       Enabled: true
-      Line Style: Lines
-      Line Width: 0.03
-      Name: Raw Odom Path
+      Line Style: Billboards
+      Line Width: 0.060
+      Name: ODOM - fused EKF
       Topic:
         Depth: 10
         Durability Policy: Volatile
@@ -55,23 +42,23 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /calibration/rviz/raw_path
     - Class: rviz_default_plugins/Path
-      Color: 0; 230; 255
+      Color: 255; 158; 0
       Enabled: true
       Line Style: Lines
-      Line Width: 0.05
-      Name: Corrected Path
+      Line Width: 0.025
+      Name: ODOM LASER - lidar only
       Topic:
         Depth: 10
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /calibration/rviz/corrected_path
+        Value: /calibration/rviz/laser_path
     - Class: rviz_default_plugins/Path
-      Color: 30; 255; 30
+      Color: 31; 255; 31
       Enabled: true
-      Line Style: Lines
-      Line Width: 0.03
-      Name: Simulator Truth Path
+      Line Style: Billboards
+      Line Width: 0.100
+      Name: SIMULATOR TRUTH
       Topic:
         Depth: 10
         Durability Policy: Volatile
@@ -79,17 +66,17 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /calibration/rviz/truth_path
     - Class: rviz_default_plugins/Path
-      Color: 255; 220; 0
+      Color: 0; 230; 255
       Enabled: true
       Line Style: Lines
-      Line Width: 0.06
-      Name: Waypoint Reference Path
+      Line Width: 0.035
+      Name: FENCE CORRECTED
       Topic:
         Depth: 10
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /calibration/rviz/waypoint_path
+        Value: /calibration/rviz/corrected_path
   Global Options:
     Background Color: 35; 35; 35
     Fixed Frame: map
@@ -105,11 +92,13 @@ Visualization Manager:
     Current:
       Angle: 0
       Class: rviz_default_plugins/TopDownOrtho
-      Name: Full Map
-      Scale: 85
+      Name: Full Fence Map
+      Scale: 75
       Target Frame: map
       X: 6
       Y: 3.5
 Window Geometry:
-  Height: 850
-  Width: 1280
+  Height: 900
+  Hide Left Dock: true
+  Hide Right Dock: true
+  Width: 1400

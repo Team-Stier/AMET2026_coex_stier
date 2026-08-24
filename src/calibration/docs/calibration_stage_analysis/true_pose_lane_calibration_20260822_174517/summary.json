@@ -1,0 +1,47 @@
+{
+  "detection": {
+    "processed_frames": 1359,
+    "valid_frames": 1298,
+    "valid_ratio": 0.9551140544518028,
+    "mean_confidence_valid": 0.7733672785345097
+  },
+  "matching": {
+    "attempts": 1251,
+    "successes": 1106,
+    "success_ratio": 0.8840927258193445,
+    "mean_match_count": 33.52983725135624,
+    "mean_rms_m": 0.10437714832049376,
+    "mean_abs_lateral_m": 0.13779357050239083,
+    "mean_abs_yaw_deg": 4.358552428886976,
+    "lateral_saturation_count": 467,
+    "yaw_saturation_count": 525,
+    "rms_over_0_10m_count": 495,
+    "rms_over_0_20m_count": 224
+  },
+  "waypoint_lane_map": {
+    "mean_m": 0.052864607707401826,
+    "rmse_m": 0.06285398907657022,
+    "p95_m": 0.1243181644229748,
+    "max_m": 0.24652357563990848
+  },
+  "waypoint_error_raw": {
+    "mean": 0.1469546935084061,
+    "rmse": 0.20627710313109227,
+    "p95": 0.35949149654809737,
+    "max": 0.41989680452646944
+  },
+  "waypoint_error_corrected": {
+    "mean": 0.11990656409257482,
+    "rmse": 0.1397095623272142,
+    "p95": 0.2667806258501565,
+    "max": 0.35577303716594816
+  },
+  "final_effect": {
+    "improved_samples": 4005,
+    "worsened_samples": 4064,
+    "mean_improvement_m": 0.027048129415831262,
+    "mean_improvement_when_raw_over_0_20m": 0.14627138709415904,
+    "mean_improvement_when_raw_at_most_0_10m": -0.06879545371792901
+  },
+  "sample_count": 8069
+}

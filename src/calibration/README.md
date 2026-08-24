@@ -1,8 +1,37 @@
 # Calibration package
 
-카메라 중앙 노란선의 BEV 특징점 검출과 시뮬레이터 컬러 Lane Map 기준
-횡방향·yaw odometry 보정을 제공한다. 기준 맵은
-`docs/sim_lane_map_world_color.png`이며 해상도는 `0.01 m/px`다.
+현재 활성 보정 경로는 2D LiDAR 외곽 펜스 전용이다. 시뮬레이터의 네 외곽선
+`x=0`, `x=12`, `y=0`, `y=7`을 사용하며 기본 실행과 YAML 모두
+`correction_source=fence`다. 펜스 모드에서는 카메라 영상과 `/camera/pan`을
+구독하지 않고 중앙 노란선을 검출하거나 보정 입력으로 사용하지 않는다.
+
+## LiDAR 펜스 보정
+
+```text
+/scan_filtered + scan timestamp의 base_footprint ← lidar_link TF
+  → 유효 range를 base_footprint 평면 점으로 변환
+  → 현재 보정 pose로 map/odom 좌표에 투영
+  → 네 유한 선분에서 0.25m 이내인 점만 연결
+  → Huber point-to-line SE(2) 최적화
+  → 최소 3개 펜스와 80개 점을 확인
+  → EKF에서 x/y/yaw 측정 갱신
+  → rate limit을 거친 /odom/calibride
+```
+
+라바콘처럼 펜스에서 떨어진 내부 물체는 대응점에서 제외한다. 한쪽 벽만 보이는
+경우처럼 pose를 충분히 관측할 수 없으면 보정하지 않고 기존 odometry 예측을
+유지한다. 한 번의 측정에서 `0.35m` 또는 `0.15rad`를 넘는 보정도 거부한다.
+
+펜스 좌표는 `reference_frame` 기준이다. 기본 실행은 첫 `/odom` pose를 고정 시작
+pose `map (1.4m, 3.4m, -pi/2rad)`에 맞춰 `map→odom`을 한 번 계산하고 static TF로
+발행한다. 매번 같은 시작 위치와 방향으로 출발한다는 조건이 깨지면 이 값도 함께
+바꿔야 한다. 시뮬레이터 ground truth는 검증에만 사용하며 fence matcher가 직접
+구독하지 않는다.
+
+## 비활성 차선 구현
+
+기존 실험 결과와 사용자 변경사항을 보존하기 위해 차선 관련 모듈은 삭제하지 않았다.
+하지만 현재 기본 실행과 배포 설정에서는 해당 경로를 사용하지 않는다.
 
 ## 처리 흐름
 
@@ -38,18 +67,17 @@ ros2 run calibration calibration_node --ros-args \
   --params-file install/calibration/share/calibration/config/lane_detection.yaml
 ```
 
-전체 컬러 맵 위에서 시뮬 위치와 보정 결과를 비교하려면 다음 launch 하나를 사용한다.
+외곽 펜스와 네 경로를 비교하려면 다음 launch 하나를 사용한다.
 
 ```bash
 ros2 launch calibration sim_localization_rviz.launch.py
 ```
 
-RViz 표시는 빨강 `RAW`, 청록 `CORRECTED`, 초록 `TRUTH`이며 각 라벨에 실제 위치
-기준 거리·yaw 오차가 표시된다. 자홍색 점은 현재 카메라에서 검출한 중앙선이다.
-지도 배경은 `0.02m` 간격으로 표시하지만 노란 중앙선은 누락되지 않도록 원본 지도
-해상도인 `0.01m` 간격의 모든 픽셀을 별도 레이어로 표시한다.
-브리지는 시작 순간의 시뮬 실제 pose만 이용해 고정 `map→odom`을 초기화한다. 이후
-실제 pose는 비교 표시에만 사용하며 보정 계산에는 입력하지 않는다.
+RViz 표시는 회색 펜스, 빨강 `/odom`, 주황 `/odom/laser`, 청록 fence corrected,
+초록 simulator truth다. 각 현재 pose 라벨에는 truth 기준 거리·yaw 오차가 표시된다.
+중앙선 이미지나 카메라 검출 결과는 표시하지 않는다. bridge도 각 odometry의 첫
+pose를 동일한 고정 시작 pose에 독립 정렬하며 simulator truth는 비교에만 사용한다.
+누적 Path는 1초마다 재발행되어 rosbag 주행이 끝난 뒤에도 RViz에 남는다.
 
 ## 출력
 
@@ -60,6 +88,11 @@ RViz 표시는 빨강 `RAW`, 청록 `CORRECTED`, 초록 `TRUTH`이며 각 라벨
 | `/calibration/debug/lane_mask/compressed` | `sensor_msgs/msg/CompressedImage` | 노란선 binary mask |
 | `/calibration/debug/lane_overlay/compressed` | `sensor_msgs/msg/CompressedImage` | skeleton 특징점 overlay |
 | `/odom/calibride` | `nav_msgs/msg/Odometry` | 보정 또는 안전 fallback odometry |
+| `/calibration/rviz/raw_path` | `nav_msgs/msg/Path` | 고정 시작 정렬 `/odom` 경로 |
+| `/calibration/rviz/laser_path` | `nav_msgs/msg/Path` | 고정 시작 정렬 `/odom/laser` 경로 |
+| `/calibration/rviz/corrected_path` | `nav_msgs/msg/Path` | fence corrected 경로 |
+| `/calibration/rviz/truth_path` | `nav_msgs/msg/Path` | 비교 전용 simulator truth 경로 |
+| `/calibration/rviz/fence` | `visualization_msgs/msg/Marker` | `12m x 7m` 기준 펜스 |
 
 검출 confidence가 `minimum_confidence`보다 낮으면 centerline Path를 발행하지 않는다.
 디버그 영상은 `publish_debug_images=false`로 끌 수 있다.

@@ -101,3 +101,25 @@ def test_prediction_rotates_odom_delta_by_corrected_heading():
 
     assert ekf.output_pose[0] == pytest.approx(math.cos(yaw), abs=1e-6)
     assert ekf.output_pose[1] == pytest.approx(math.sin(yaw), abs=1e-6)
+
+
+def test_local_lane_residual_never_reanchors_to_absolute_raw_pose():
+    ekf = PoseCorrectionEkf(
+        maximum_output_position_rate_m_s=10.0,
+        maximum_output_yaw_rate_rad_s=10.0,
+    )
+    ekf.predict((0.0, 0.0, 0.0), 0.0)
+    ekf.correct_local_residual(
+        0.20, 0.0, rms_error_m=0.001, match_count=100
+    )
+    ekf.advance_output(1.0)
+    held_y = ekf.output_pose[1]
+
+    ekf.predict((1.0, 0.0, 0.0), 0.1)
+    ekf.correct_local_residual(
+        0.0, 0.0, rms_error_m=0.001, match_count=100
+    )
+    ekf.advance_output(1.0)
+
+    assert ekf.output_pose[0] == pytest.approx(1.0, abs=1e-6)
+    assert ekf.output_pose[1] == pytest.approx(held_y)

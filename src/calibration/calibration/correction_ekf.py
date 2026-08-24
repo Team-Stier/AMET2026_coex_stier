@@ -195,6 +195,30 @@ class PoseCorrectionEkf:
             + gain @ measurement_noise @ gain.T
         )
 
+    def correct_local_residual(
+        self,
+        lateral_m: float,
+        yaw_rad: float,
+        *,
+        rms_error_m: float,
+        match_count: int,
+    ) -> tuple[float, float, float] | None:
+        """Correct relative to the persistent state, never the absolute raw pose."""
+        if self.state is None:
+            return None
+        x, y, yaw = (float(value) for value in self.state)
+        measured_pose = (
+            x - math.sin(yaw) * float(lateral_m),
+            y + math.cos(yaw) * float(lateral_m),
+            normalize_angle(yaw + float(yaw_rad)),
+        )
+        self.correct(
+            measured_pose,
+            rms_error_m=rms_error_m,
+            match_count=match_count,
+        )
+        return measured_pose
+
     def advance_output(self, dt_sec: float) -> None:
         if self.state is None or self.output_state is None:
             return

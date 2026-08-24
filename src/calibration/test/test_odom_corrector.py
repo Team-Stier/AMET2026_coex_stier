@@ -2,10 +2,93 @@ import numpy as np
 
 from calibration.lane_map import LaneReference
 from calibration.odom_corrector import (
+    CorrectionQualityGate,
+    CorrectionResult,
     LaneOdomCorrector,
     fit_local_line_directions,
+    is_meaningful_correction,
     transform_points,
 )
+
+
+def test_quality_gate_requires_motion_and_consistent_measurements():
+    gate = CorrectionQualityGate(
+        minimum_speed_m_s=0.10,
+        maximum_rms_error_m=0.08,
+        maximum_abs_lateral_m=0.19,
+        maximum_abs_yaw_rad=0.11,
+        maximum_lateral_jump_m=0.05,
+        maximum_yaw_jump_rad=0.04,
+        required_consistent_measurements=3,
+    )
+    correction = CorrectionResult(0.04, 0.01, 0.02, 20)
+
+    assert not gate.accept(correction, 0.02)
+    assert not gate.accept(correction, 0.50)
+    assert not gate.accept(CorrectionResult(0.045, 0.012, 0.02, 20), 0.50)
+    assert gate.accept(CorrectionResult(0.043, 0.011, 0.02, 20), 0.50)
+
+
+def test_quality_gate_resets_after_outlier_or_saturation():
+    gate = CorrectionQualityGate(
+        minimum_speed_m_s=0.10,
+        maximum_rms_error_m=0.08,
+        maximum_abs_lateral_m=0.19,
+        maximum_abs_yaw_rad=0.11,
+        maximum_lateral_jump_m=0.05,
+        maximum_yaw_jump_rad=0.04,
+        required_consistent_measurements=2,
+    )
+    valid = CorrectionResult(0.04, 0.01, 0.02, 20)
+
+    assert not gate.accept(valid, 0.50)
+    assert not gate.accept(CorrectionResult(0.20, 0.01, 0.02, 20), 0.50)
+    assert not gate.accept(valid, 0.50)
+    assert gate.accept(valid, 0.50)
+
+
+def test_zero_lateral_holds_persistent_correction_target():
+    zero = CorrectionResult(0.0, 0.0, 0.01, 30)
+    meaningful = CorrectionResult(0.011, 0.0, 0.01, 30)
+
+    assert not is_meaningful_correction(
+        zero, minimum_lateral_m=0.01, use_yaw=False
+    )
+    assert is_meaningful_correction(
+        meaningful, minimum_lateral_m=0.01, use_yaw=False
+    )
+
+
+def test_quality_gate_can_disable_absolute_lateral_limit():
+    gate = CorrectionQualityGate(
+        minimum_speed_m_s=0.10,
+        maximum_rms_error_m=0.08,
+        maximum_abs_lateral_m=-1.0,
+        maximum_abs_yaw_rad=0.11,
+        maximum_lateral_jump_m=10.0,
+        maximum_yaw_jump_rad=0.04,
+        required_consistent_measurements=1,
+    )
+
+    assert gate.accept(CorrectionResult(2.0, 0.01, 0.02, 20), 0.50)
+
+
+def test_lateral_estimate_is_not_clipped_when_limit_is_disabled():
+    x = np.linspace(0.2, 3.0, 80)
+    reference = np.column_stack((x, np.zeros_like(x)))
+    observed_base = reference.copy()
+    corrector = LaneOdomCorrector(
+        maximum_match_distance_m=1.0,
+        maximum_lateral_correction_m=-1.0,
+        smoothing_alpha=1.0,
+    )
+
+    result = corrector.estimate(
+        observed_base, reference, odom_x=0.0, odom_y=0.45, odom_yaw=0.0
+    )
+
+    assert result is not None
+    np.testing.assert_allclose(result.lateral_m, -0.45, atol=0.02)
 
 
 def test_estimates_lateral_and_yaw_error_against_centerline():

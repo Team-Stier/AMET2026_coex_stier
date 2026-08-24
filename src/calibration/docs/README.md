@@ -18,6 +18,12 @@
 - `calibration_stage_analysis/*.csv`: 프레임·매칭·pose 단위 원시 진단 데이터
 - `calibration_stage_analysis/01_*.png` ~ `08_*.png`: 단계별 시각화
 - `calibration_stage_analysis/initial_lateral_only_experiment/`: 초기 60초 yaw-off 분리 실험
+- `fence_localization_analysis/strict_two_lap_full_20260823_152110/ANALYSIS.md`:
+  고정 시작 pose와 네 직선 LiDAR 펜스를 사용한 전체 bag 성능 그래프
+- `fence_localization_analysis/strict_two_lap_full_20260823_152110/05_rviz_replay_final.png`:
+  주행 종료 뒤 실제 RViz에 남은 truth, `/odom`, `/odom/laser`, fence corrected 경로
+- `fence_localization_analysis/strict_two_lap_full_20260823_152110/RVIZ_REPLAY.md`:
+  RViz 재생 조건, 색상표와 종료 뒤 Path 포인트 수
 
 `sim_lane_map_world_color.png`는 카메라 중앙선 매칭용이다. Nav2 또는 LiDAR SLAM의
 occupancy map으로 사용하지 않는다.
