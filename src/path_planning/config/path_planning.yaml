@@ -7,7 +7,7 @@ path_planning_node:
     # 장애물 충돌 검사에 쓰는 차량 직사각형의 전체 폭이다.
     vehicle_width_m: 0.20
     # 차량 직사각형의 전체 길이이며, wheelbase와의 차이는 앞뒤 오버행으로 반씩 배분된다.
-    vehicle_length_m: 0.28
+    vehicle_length_m: 0.4
     # 앞바퀴 위치와 자전거 모델 곡률(tan(조향각)/wheelbase)을 결정한다.
     wheelbase_m: 0.18
     # 실차 앞바퀴의 물리 조향 한계다. 모든 planning 후보는 이 값 이하여야 한다.

@@ -16,7 +16,7 @@ control_node:
     maximum_speed_variance_m2_s2: 1.0
     # 현재 /pose/calibration.pose.position 원점은 LiDAR보다 0.027 m 전방이다.
     # calibration의 LiDAR extrinsic 또는 pose 원점 계약을 바꿀 때만 함께 갱신한다.
-    calibrated_pose.origin_x_from_lidar_m: -0.027
+    calibrated_pose.origin_x_from_lidar_m: 0.0
 
     # Pure Pursuit 횡방향 제어 설정이다.
     pure_pursuit.wheelbase_m: 0.18
@@ -24,7 +24,7 @@ control_node:
     # LiDAR 원점 기준 Pure Pursuit 추종 기준점의 종방향 위치다.
     # 양수는 차량 전방, 0은 LiDAR 원점, 음수는 차량 후방이다.
     # 현재 /pose/calibration 기준점이 LiDAR 전방 0.027 m라서 이 기본값은 기존 동작을 유지한다.
-    pure_pursuit.reference_point_x_from_lidar_m: -0.027
+    pure_pursuit.reference_point_x_from_lidar_m: 0.0
     # 실차 약 20도의 하드 조향 제한이다. 플래너 후보는 추종 보정 여유를 위해 이보다 작게 둔다.
     pure_pursuit.max_steering_rad: 0.3491
     pure_pursuit.closed_loop: false
@@ -33,8 +33,8 @@ control_node:
     # 0.55 m/s에서는 0.45 m, 1.5 m/s에서는 0.825 m가 된다.
     speed_lookahead.enabled: true
     speed_lookahead.lookahead_time_sec: 0.78
-    speed_lookahead.min_lookahead_m: 0.70
-    speed_lookahead.max_lookahead_m: 1.40
+    speed_lookahead.min_lookahead_m: 0.45
+    speed_lookahead.max_lookahead_m: 1.0
     longitudinal_pid.enabled: false
     longitudinal_pid.kp: 0.0
     longitudinal_pid.ki: 0.0
@@ -45,9 +45,9 @@ control_node:
     longitudinal_pid.integral_max: 0.0
     adaptive_control.enabled: true
     adaptive_control.preview_distance_m: 2.00
-    adaptive_control.min_lookahead_m: 0.70
-    adaptive_control.max_lookahead_m: 1.40
+    adaptive_control.min_lookahead_m: 0.45
+    adaptive_control.max_lookahead_m: 0.8
     adaptive_control.curvature_reference_inv_m: 2.4
     adaptive_control.max_lateral_acceleration_m_s2: 1.00
     adaptive_control.min_speed_limit_m_s: 0.50
-    adaptive_control.max_speed_limit_m_s: 2.0
+    adaptive_control.max_speed_limit_m_s: 1.2
