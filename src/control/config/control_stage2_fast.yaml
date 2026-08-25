@@ -1,0 +1,26 @@
+control_node:
+  ros__parameters:
+    # Stage 1 실차 통과 뒤 사용하는 랩타임 우선 후보
+    target_speed_m_s: 1.05
+    max_speed_m_s: 1.05
+    pure_pursuit.lookahead_distance_m: 0.65
+    speed_lookahead.enabled: true
+    speed_lookahead.lookahead_time_sec: 0.82
+    speed_lookahead.min_lookahead_m: 0.65
+    speed_lookahead.max_lookahead_m: 1.30
+    longitudinal_pid.enabled: false
+    longitudinal_pid.kp: 0.0
+    longitudinal_pid.ki: 0.0
+    longitudinal_pid.kd: 0.0
+    longitudinal_pid.output_min: 0.0
+    longitudinal_pid.output_max: 0.0
+    longitudinal_pid.integral_min: 0.0
+    longitudinal_pid.integral_max: 0.0
+    adaptive_control.enabled: true
+    adaptive_control.preview_distance_m: 1.75
+    adaptive_control.min_lookahead_m: 0.65
+    adaptive_control.max_lookahead_m: 1.30
+    adaptive_control.curvature_reference_inv_m: 2.2
+    adaptive_control.max_lateral_acceleration_m_s2: 0.80
+    adaptive_control.min_speed_limit_m_s: 0.45
+    adaptive_control.max_speed_limit_m_s: 1.05

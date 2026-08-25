@@ -1,0 +1,26 @@
+control_node:
+  ros__parameters:
+    # 최초 실차 검증: 안정성 우선
+    target_speed_m_s: 0.65
+    max_speed_m_s: 0.65
+    pure_pursuit.lookahead_distance_m: 0.60
+    speed_lookahead.enabled: true
+    speed_lookahead.lookahead_time_sec: 0.95
+    speed_lookahead.min_lookahead_m: 0.60
+    speed_lookahead.max_lookahead_m: 1.10
+    longitudinal_pid.enabled: false
+    longitudinal_pid.kp: 0.0
+    longitudinal_pid.ki: 0.0
+    longitudinal_pid.kd: 0.0
+    longitudinal_pid.output_min: 0.0
+    longitudinal_pid.output_max: 0.0
+    longitudinal_pid.integral_min: 0.0
+    longitudinal_pid.integral_max: 0.0
+    adaptive_control.enabled: true
+    adaptive_control.preview_distance_m: 1.25
+    adaptive_control.min_lookahead_m: 0.60
+    adaptive_control.max_lookahead_m: 1.10
+    adaptive_control.curvature_reference_inv_m: 2.0
+    adaptive_control.max_lateral_acceleration_m_s2: 0.45
+    adaptive_control.min_speed_limit_m_s: 0.35
+    adaptive_control.max_speed_limit_m_s: 0.65
