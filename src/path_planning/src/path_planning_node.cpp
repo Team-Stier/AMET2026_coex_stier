@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -24,6 +25,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/bool.hpp>
 
 #include "path_planning/planner_core.hpp"
 
@@ -235,10 +237,23 @@ public:
   PlanningWorker(const PlanningWorker &) = delete;
   PlanningWorker & operator=(const PlanningWorker &) = delete;
 
+  void enable()
+  {
+    {
+      std::lock_guard<std::mutex> lock(gate_mutex_);
+      enabled_ = true;
+    }
+    gate_condition_.notify_one();
+  }
+
 private:
   void stop()
   {
-    stopping_ = true;
+    {
+      std::lock_guard<std::mutex> lock(gate_mutex_);
+      stopping_ = true;
+    }
+    gate_condition_.notify_one();
     if (thread_.joinable()) {
       thread_.join();
     }
@@ -246,6 +261,11 @@ private:
 
   void run()
   {
+    {
+      std::unique_lock<std::mutex> lock(gate_mutex_);
+      gate_condition_.wait(lock, [this]() {return stopping_ || enabled_;});
+    }
+
     while (!stopping_) {
       PlanningSnapshot snapshot = registry_.planning_snapshot();
       if (!snapshot.pose) {
@@ -298,6 +318,9 @@ private:
   PlanningRegistry & registry_;
   AttemptCallback attempt_callback_;
   rclcpp::Logger logger_;
+  std::mutex gate_mutex_;
+  std::condition_variable gate_condition_;
+  bool enabled_{false};
   std::atomic_bool stopping_{false};
   std::thread thread_;
 };
@@ -370,14 +393,18 @@ public:
     }
     planning_worker_ = std::make_unique<PlanningWorker>(
       *planner_, *registry_, std::move(attempt_callback), get_logger());
+    gosign_subscription_ = create_subscription<std_msgs::msg::Bool>(
+      "/gosign", rclcpp::QoS(10),
+      std::bind(&PathPlanningNode::on_gosign, this, std::placeholders::_1));
 
     RCLCPP_INFO(
-      get_logger(), "using %s with RDDF %s", pose_topic_.c_str(),
+      get_logger(), "waiting for /gosign=true; using %s with RDDF %s", pose_topic_.c_str(),
       rddf_path.string().c_str());
   }
 
   ~PathPlanningNode() override
   {
+    gosign_subscription_.reset();
     odometry_subscription_.reset();
     object_subscription_.reset();
     planning_worker_.reset();
@@ -490,6 +517,14 @@ private:
   }
 
 public:
+  void on_gosign(const std_msgs::msg::Bool::ConstSharedPtr message)
+  {
+    if (!message->data) {
+      return;
+    }
+    planning_worker_->enable();
+  }
+
   void on_selected_odometry(const nav_msgs::msg::Odometry::ConstSharedPtr message)
   {
     const auto & position = message->pose.pose.position;
@@ -620,6 +655,7 @@ private:
   rclcpp::Publisher<interfaces::msg::SearchTree>::SharedPtr search_tree_publisher_;
   rclcpp::Subscription<interfaces::msg::Objects>::SharedPtr object_subscription_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometry_subscription_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr gosign_subscription_;
   std::unique_ptr<PlanningWorker> planning_worker_;
 };
 

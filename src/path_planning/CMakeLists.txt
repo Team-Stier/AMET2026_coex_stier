@@ -15,6 +15,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(interfaces REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
 
 add_library(planner_core
   src/planner_core.cpp
@@ -36,6 +37,7 @@ ament_target_dependencies(path_planning_node
   interfaces
   nav_msgs
   rclcpp
+  std_msgs
 )
 
 install(TARGETS planner_core path_planning_node

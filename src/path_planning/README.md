@@ -44,6 +44,7 @@ Registry에 그대로 저장한다. `pose_topic: "/pose/calibration"`으로 선�
 | 정적 입력 | `rddf_file` | CSV 경로 | `center_x_m,center_y_m,inner_x_m,inner_y_m,outer_x_m,outer_y_m` 열을 가진 폐곡선 |
 | 동적 입력 | `pose_topic` | `nav_msgs/Odometry` | `/pose` 또는 `/pose/calibration` 중 설정으로 선택한 `map` frame 차량 pose와 속도 |
 | 동적 입력 | `/object_info` | `interfaces/Objects` | 뒤 차축 중심 기준 차량 로컬 좌표의 장애물 중심점 |
+| 시작 입력 | `/gosign` | `std_msgs/Bool` | 최초 `true`를 받으면 대기 중인 PlanningWorker를 활성화 |
 | 출력 | `/path` | `nav_msgs/Path` | `map` 좌표의 전방 로컬 구간, pose 방향 포함 |
 | 디버그 출력 | `/path_planning/debug/search_tree` | `interfaces/SearchTree` | `map` 좌표인 직전 성공 Hybrid A* 탐색의 노드 위치·yaw와 parent index |
 
@@ -68,9 +69,8 @@ CPython 바이트코드가 아니라 C++17 네이티브 코드로 실행한다. 
 
 - 선택된 odometry 콜백은 pose를 갱신하고 현재 경로의 앞쪽 구간을 잘라 `/path`로
   발행한다. 로컬 경로 발행 주기는 선택된 odometry 수신 주기와 같다.
-- `PlanningWorker`의 `std::thread`는 별도 타이머나 sleep 없이 순수 `while` 반복문으로
-  동작한다. 매 반복마다 Registry에서 최신 `PlanningSnapshot`을 직접 읽고, pose가 있으면
-  즉시 Hybrid A*를 실행한다.
+- `PlanningWorker`의 `std::thread`는 시작 시 condition variable에서 CPU를 사용하지 않고
+  대기한다. `/gosign=true`를 받으면 대기를 풀고 기존 연속 계획 루프를 실행한다.
 - 선택된 odometry pose를 아직 받지 않았으면 계획하지 않고 다음 반복으로 넘어간다.
 - 고정 계획 주기, 요청 큐, pending 슬롯은 없다. 한 번의 계획이 끝나면 최신 pose와
   장애물을 다시 읽어 다음 계획을 바로 시작한다.
@@ -276,6 +276,7 @@ Registry는 잠금 안에서 일관된 스냅샷을 만들거나 최신 참조�
 
 ```mermaid
 sequenceDiagram
+    participant TL as TrafficLightNode
     participant OD as ObjectDetectionNode
     participant LOC as LocalizationNode
     participant N as PathPlanningNode
@@ -289,6 +290,7 @@ sequenceDiagram
     N->>N: declare/read ROS parameters
     N->>LOC: 선택된 토픽 하나만 subscribe
     N->>W: PlanningWorker 생성 및 thread start
+    W->>W: condition variable에서 대기
     LOC->>N: 선택된 odometry 토픽
     N->>N: 선택된 map pose 검증
     N->>REG: update_pose(map pose)
@@ -301,6 +303,9 @@ sequenceDiagram
     else pose 없음
         N->>N: 이번 메시지 처리 종료
     end
+
+    TL->>N: /gosign=true
+    N->>W: planning 활성화 및 notify
 
     loop PlanningWorker가 중단될 때까지 연속 실행
         W->>REG: planning_snapshot()

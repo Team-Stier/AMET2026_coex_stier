@@ -163,6 +163,7 @@ flowchart TD
     IMAGE --> TL
     TL --> TL_RESULT
     TL_RESULT --> CONTROL_PID
+    TL_RESULT --> PATH_PLANNING
 
     %% Localization
     POSE --> PATH_PLANNING
@@ -221,7 +222,7 @@ float32[20] y
 - **`/visualizer/object_info`** (`visualization_msgs/Marker`): `/object_info`의 유효한 중심점들을
   원본 timestamp와 `lidar_link` frame 그대로 유지한 `SPHERE_LIST` Marker. RViz가 해당 시각의
   `map → lidar_link` TF를 적용하므로 장애물은 ego의 이동과 회전에 붙어서 표시된다.
-- **`/gosign`** (`std_msgs/Bool`): 신호등 인식 결과에 따른 진행 가능 여부. Control Node는 최초 `true`를 주행 시작 신호로 래치하며 이후 메시지의 영향을 받지 않는다.
+- **`/gosign`** (`std_msgs/Bool`): 신호등 인식 결과에 따른 진행 가능 여부. Control Node는 최초 `true`를 주행 시작 신호로 래치하고, Path Planning Node는 대기 중인 PlanningWorker를 활성화한다.
 - **`/path`** (`nav_msgs/Path`): Path Planning Node가 `map` frame으로 생성한 차량 주행 경로. Control Node의 입력으로 사용한다.
 - **`/rddf/centerline`** (`nav_msgs/Path`): CSV 좌표를 그대로 사용한 `map` frame RDDF 중앙선. RViz에서 노란색으로 표시한다.
 - **`/rddf/inner_boundary`** (`nav_msgs/Path`): CSV 좌표를 그대로 사용한 `map` frame RDDF 안쪽 경계선.
@@ -289,9 +290,11 @@ source /home/physicar/physicar_ws/run.sh
 `run.sh`는 source 호출을 감지하면 별도의 Bash 프로세스에서 bringup을 수행해 호출한
 셸의 옵션, 작업 디렉터리, trap을 변경하지 않아야 한다. 실행 프로세스는 ROS 2 Jazzy
 환경을 불러오고 `colcon build --cmake-clean-cache`를 실행한 뒤,
-Object Detection → Control → Traffic Light → Pose TF → Path Planning → Visualizer/RViz
-순서로 노드를 시작한다. Control Node를 Traffic Light Node보다 먼저 시작해 `/gosign`
-구독을 준비한다. Traffic Light Node는 최초 `/gosign=true`를 한 번 발행한 뒤 정상 종료하며,
+Object Detection → Control → Pose TF → Calibration → Path Planning → Traffic Light →
+Visualizer/RViz 순서로 노드를 시작한다. Control Node와 Path Planning Node를 Traffic Light
+Node보다 먼저 시작해 `/gosign` 구독을 준비한다. Path Planning Worker는 처음에는 연산 없이
+대기하고 `/gosign=true`를 받으면 계획을 시작한다. Traffic Light Node는 최초
+`/gosign=true`를 한 번 발행한 뒤 정상 종료하며,
 나머지 상시 실행 노드가 종료되면 전체 프로그램도 종료한다. `Ctrl+C`를 누르면
 스크립트가 실행한 모든 노드를 함께 종료한다.
 
