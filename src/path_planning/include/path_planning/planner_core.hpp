@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "path_planning/cost_function.hpp"
+
 namespace path_planning
 {
 
@@ -214,13 +216,8 @@ private:
 class CostModel
 {
 public:
-  CostModel(
-    double max_speed_mps,
-    double max_lateral_accel_mps2,
-    double w_curvature,
-    double w_curvature_change);
+  explicit CostModel(const CostFunction & function);
 
-  double expected_speed(double curvature) const noexcept;
   double transition_cost(
     double distance_m,
     double curvature,
@@ -228,10 +225,8 @@ public:
   double heuristic(double minimum_travel_distance_m) const noexcept;
 
 private:
-  double max_speed_{};
-  double max_lateral_accel_{};
-  double w_curvature_{};
-  double w_curvature_change_{};
+  TransitionCostFunction transition_cost_function_{};
+  HeuristicCostFunction heuristic_function_{};
 };
 
 class HybridAStarPlanner
@@ -248,6 +243,7 @@ public:
     double progress_resolution_m,
     double primitive_length_m,
     double collision_check_step_m,
+    double vehicle_max_steering_rad,
     std::vector<double> steering_candidates_rad,
     double goal_longitudinal_tolerance_m,
     double goal_yaw_tolerance_rad,

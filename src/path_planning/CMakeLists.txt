@@ -16,7 +16,12 @@ find_package(interfaces REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 
-add_library(planner_core src/planner_core.cpp)
+add_library(planner_core
+  src/planner_core.cpp
+  src/cost_functions/distance.cpp
+  src/cost_functions/min_curvature.cpp
+  src/cost_functions/select.cpp
+)
 target_include_directories(planner_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>

@@ -217,7 +217,7 @@ ros2 run traffic_light traffic_light_node
 | 파라미터 | 기본값 | 설명 |
 | --- | --- | --- |
 | `model_path` | 설치된 `traffic_light_384_ncnn_model` 경로 | 사용할 고정 크기 NCNN 모델 디렉터리 |
-| `confidence` | `0.5` | 검출 confidence 기준값 |
+| `confidence` | `0.75` | 검출 confidence 기준값 |
 | `image_size` | `0` | `0`이면 모델 메타데이터 자동 사용. 지정 시 모델 크기와 같아야 함 |
 | `green_confirm_frames` | `3` | 주행 허용에 필요한 연속 초록 프레임 수 |
 | `image_timeout_seconds` | `1.0` | 카메라 입력 중단 판정 시간 |

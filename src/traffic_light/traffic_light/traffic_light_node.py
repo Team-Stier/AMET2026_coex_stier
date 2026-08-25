@@ -96,7 +96,7 @@ class TrafficLightNode(Node):
             self.declare_parameter("model_path", str(default_model_path)).value
         )
         self.confidence = float(
-            self.declare_parameter("confidence", 0.5).value
+            self.declare_parameter("confidence", 0.75).value
         )
         requested_image_size = int(
             self.declare_parameter("image_size", 0).value

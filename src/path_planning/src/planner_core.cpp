@@ -1052,29 +1052,13 @@ bool CollisionChecker::is_primitive_valid(
   return true;
 }
 
-CostModel::CostModel(
-  double max_speed_mps,
-  double max_lateral_accel_mps2,
-  double w_curvature,
-  double w_curvature_change)
-: max_speed_(max_speed_mps),
-  max_lateral_accel_(max_lateral_accel_mps2),
-  w_curvature_(w_curvature),
-  w_curvature_change_(w_curvature_change)
+CostModel::CostModel(const CostFunction & function)
+: transition_cost_function_(function.transition_cost),
+  heuristic_function_(function.heuristic)
 {
-  require_positive(max_speed_mps, "maximum speed");
-  require_positive(max_lateral_accel_mps2, "maximum lateral acceleration");
-  require_nonnegative(w_curvature, "curvature weight");
-  require_nonnegative(w_curvature_change, "curvature-change weight");
-}
-
-double CostModel::expected_speed(double curvature) const noexcept
-{
-  const double magnitude = std::abs(curvature);
-  if (magnitude <= kGeometryEpsilon) {
-    return max_speed_;
+  if (transition_cost_function_ == nullptr || heuristic_function_ == nullptr) {
+    throw std::invalid_argument("cost function callbacks must not be null");
   }
-  return std::min(max_speed_, std::sqrt(max_lateral_accel_ / magnitude));
 }
 
 double CostModel::transition_cost(
@@ -1087,19 +1071,12 @@ double CostModel::transition_cost(
   {
     return std::numeric_limits<double>::infinity();
   }
-  // const double travel_time = distance_m / expected_speed(curvature);
-  // const double curvature_integral = curvature * curvature * distance_m;
-  // const double curvature_change = curvature - previous_curvature;
-  // const double curvature_change_integral = curvature_change * curvature_change / distance_m;
-  // return travel_time + w_curvature_ * curvature_integral +
-  //        w_curvature_change_ * curvature_change_integral;
-  return distance_m;
+  return transition_cost_function_(distance_m, curvature, previous_curvature);
 }
 
 double CostModel::heuristic(double minimum_travel_distance_m) const noexcept
 {
-  // return std::max(0.0, minimum_travel_distance_m) / max_speed_;
-  return std::max(0.0, minimum_travel_distance_m);
+  return heuristic_function_(minimum_travel_distance_m);
 }
 
 HybridAStarPlanner::HybridAStarPlanner(
@@ -1113,6 +1090,7 @@ HybridAStarPlanner::HybridAStarPlanner(
   double progress_resolution_m,
   double primitive_length_m,
   double collision_check_step_m,
+  double vehicle_max_steering_rad,
   std::vector<double> steering_candidates_rad,
   double goal_longitudinal_tolerance_m,
   double goal_yaw_tolerance_rad,
@@ -1144,6 +1122,7 @@ HybridAStarPlanner::HybridAStarPlanner(
   require_positive(progress_resolution_m, "progress resolution");
   require_positive(primitive_length_m, "primitive length");
   require_positive(collision_check_step_m, "collision-check step");
+  require_positive(vehicle_max_steering_rad, "vehicle maximum steering");
   require_positive(goal_longitudinal_tolerance_m, "goal longitudinal tolerance");
   require_positive(goal_yaw_tolerance_rad, "goal yaw tolerance");
   require_nonnegative(progress_regression_tolerance_m, "progress regression tolerance");
@@ -1156,6 +1135,9 @@ HybridAStarPlanner::HybridAStarPlanner(
   if (yaw_resolution_rad > 2.0 * kPi || goal_yaw_tolerance_rad > kPi) {
     throw std::invalid_argument("yaw resolution/tolerance is outside its valid range");
   }
+  if (vehicle_max_steering_rad >= 0.5 * kPi) {
+    throw std::invalid_argument("vehicle maximum steering must be less than pi/2");
+  }
   if (steering_candidates_rad.empty()) {
     throw std::invalid_argument("steering candidate list must not be empty");
   }
@@ -1164,6 +1146,10 @@ HybridAStarPlanner::HybridAStarPlanner(
     if (!finite(steering) || std::abs(steering) >= 0.5 * kPi) {
       throw std::invalid_argument(
               "steering candidates must be finite and strictly between -pi/2 and pi/2");
+    }
+    if (std::abs(steering) > vehicle_max_steering_rad) {
+      throw std::invalid_argument(
+              "steering candidates must not exceed the vehicle maximum steering angle");
     }
     curvatures_.push_back(std::tan(steering) / wheelbase_);
   }
