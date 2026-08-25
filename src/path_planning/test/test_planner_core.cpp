@@ -85,9 +85,13 @@ TEST(RddfTrackTest, LoadsRepositoryRddfWithRepeatedBoundarySamples)
   const std::filesystem::path repository = std::filesystem::path(__FILE__)
     .parent_path().parent_path().parent_path().parent_path();
   const RddfTrack track = RddfTrack::from_csv((repository / "rddf/rddf.csv").string());
+  const RddfTrack real_track =
+    RddfTrack::from_csv((repository / "rddf/rddf_real.csv").string());
 
   EXPECT_EQ(track.centerline().size(), 495U);
   EXPECT_NEAR(track.lap_length(), 35.5582, 1.0e-3);
+  EXPECT_EQ(real_track.centerline().size(), 387U);
+  EXPECT_NEAR(real_track.lap_length(), 30.5046, 1.0e-3);
 }
 
 TEST(CollisionCheckerTest, RequiresOneWheelOnTrackAndRejectsRectangleCircleCollision)

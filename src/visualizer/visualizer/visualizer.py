@@ -26,10 +26,12 @@ LOCAL_FRAME = "lidar_link"
 MARKER_TOPICS = {
     "sim": "/rddf/ego_marker_sim",
     "pose": "/rddf/ego_marker_pose",
+    "calibration": "/rddf/ego_marker_calibration",
 }
 MARKER_COLORS = {
     "sim": (0.0, 0.85, 1.0),
     "pose": (0.1, 1.0, 0.1),
+    "calibration": (1.0, 0.25, 0.85),
 }
 SEARCH_TREE_INPUT_TOPIC = "/path_planning/debug/search_tree"
 SEARCH_TREE_MARKER_TOPIC = "/visualizer/path_planning/search_tree"
@@ -233,6 +235,13 @@ class Visualizer(Node):
             qos_profile_sensor_data,
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
+        self.create_subscription(
+            Odometry,
+            "/pose/calibration",
+            self._on_calibration_pose,
+            qos_profile_sensor_data,
+            callback_group=MutuallyExclusiveCallbackGroup(),
+        )
 
         debug_group = MutuallyExclusiveCallbackGroup()
         debug_qos = QoSProfile(
@@ -304,36 +313,46 @@ class Visualizer(Node):
         directory = FilePath(str(self.get_parameter("rddf_directory").value))
         for name in ("inner_boundary", "centerline", "outer_boundary"):
             publisher = self.create_publisher(Path, f"/rddf/{name}", qos)
-            publisher.publish(path_message(load_xy_csv(directory / f"{name}.csv")))
+            publisher.publish(path_message(load_xy_csv(directory / f"{name}_real.csv")))
             self._rddf_publishers.append(publisher)
 
-    def _on_pose(self, message: Odometry) -> None:
+    def _on_pose(
+        self,
+        message: Odometry,
+        source: str = "pose",
+        topic: str = "/pose",
+    ) -> None:
         if message.header.frame_id != GLOBAL_FRAME:
             self._warn_once(
-                ("global_frame", message.header.frame_id),
-                f"ignoring /pose in {message.header.frame_id!r}; "
+                (source, "global_frame", message.header.frame_id),
+                f"ignoring {topic} in {message.header.frame_id!r}; "
                 f"the project global frame is {GLOBAL_FRAME!r}",
             )
             return
         if message.child_frame_id != LOCAL_FRAME:
             self._warn_once(
-                ("child_frame", message.child_frame_id),
-                f"ignoring /pose for {message.child_frame_id!r}; "
+                (source, "child_frame", message.child_frame_id),
+                f"ignoring {topic} for {message.child_frame_id!r}; "
                 f"the project local frame is {LOCAL_FRAME!r}",
             )
             return
         if stamp_is_zero(message.header.stamp):
             self._warn_once(
-                ("zero_stamp",),
-                "ignoring /pose with a zero timestamp",
+                (source, "zero_stamp"),
+                f"ignoring {topic} with a zero timestamp",
             )
             return
         try:
             pose = pose_from_odometry(message)
         except ValueError as error:
-            self._warn_once(("invalid_pose",), f"ignoring invalid /pose: {error}")
+            self._warn_once(
+                (source, "invalid_pose"), f"ignoring invalid {topic}: {error}"
+            )
             return
-        self._publish_marker("pose", pose, message.header.stamp)
+        self._publish_marker(source, pose, message.header.stamp)
+
+    def _on_calibration_pose(self, message: Odometry) -> None:
+        self._on_pose(message, "calibration", "/pose/calibration")
 
     def _poll_sim_state(self) -> None:
         if time.monotonic() < self._next_sim_attempt:
@@ -363,7 +382,7 @@ class Visualizer(Node):
         marker.header.stamp = stamp
         marker.header.frame_id = GLOBAL_FRAME
         marker.ns = "ego"
-        marker.id = ("sim", "pose").index(source)
+        marker.id = ("sim", "pose", "calibration").index(source)
         marker.type = Marker.CUBE
         marker.action = Marker.ADD
         marker.pose = copy.deepcopy(pose)

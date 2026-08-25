@@ -16,9 +16,9 @@ setup(
         (
             "share/" + package_name + "/rddf",
             [
-                "../../rddf/centerline.csv",
-                "../../rddf/inner_boundary.csv",
-                "../../rddf/outer_boundary.csv",
+                "../../rddf/centerline_real.csv",
+                "../../rddf/inner_boundary_real.csv",
+                "../../rddf/outer_boundary_real.csv",
             ],
         ),
         ("share/" + package_name + "/rviz", glob("rviz/*.rviz")),

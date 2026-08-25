@@ -359,7 +359,7 @@ public:
       std::bind(&PathPlanningNode::on_object_info, this, std::placeholders::_1));
 
     const std::string selected_pose_topic =
-      use_calibride_odom_ ? "/odom/calibride" : "/pose";
+      use_calibride_odom_ ? "/pose/calibration" : "/pose";
     odometry_subscription_ = create_subscription<nav_msgs::msg::Odometry>(
       selected_pose_topic, rclcpp::SensorDataQoS(),
       std::bind(&PathPlanningNode::on_selected_odometry, this, std::placeholders::_1));

@@ -40,7 +40,9 @@ install(TARGETS planner_core path_planning_node
 )
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
-install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../rddf/rddf.csv"
+install(FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../rddf/rddf.csv"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../rddf/rddf_real.csv"
   DESTINATION share/${PROJECT_NAME}/rddf
 )
 install(PROGRAMS launch.sh DESTINATION share/${PROJECT_NAME})

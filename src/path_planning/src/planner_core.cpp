@@ -165,7 +165,7 @@ bool segments_intersect(
   const int abd = orientation(a, b, d);
   const int cda = orientation(c, d, a);
   const int cdb = orientation(c, d, b);
-  if (abc != abd && cda != cdb) {
+  if (abc * abd < 0 && cda * cdb < 0) {
     return true;
   }
   return (abc == 0 && point_on_segment(c, a, b)) ||

@@ -6,6 +6,7 @@ if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
 fi
 
 set -Eeuo pipefail
+set +m
 
 WORKSPACE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROS_SETUP="${ROS_SETUP:-/opt/ros/jazzy/setup.bash}"
@@ -34,12 +35,46 @@ declare -a PIDS=()
 declare -a NODE_NAMES=()
 declare -a NODE_MODES=()
 
+signal_groups() {
+    local signal=$1
+    local pid
+
+    for pid in "${PIDS[@]}"; do
+        kill -s "$signal" -- "-$pid" 2>/dev/null || true
+    done
+}
+
+wait_for_groups() {
+    local deadline=$((SECONDS + $1))
+    local pid
+
+    while ((SECONDS < deadline)); do
+        for pid in "${PIDS[@]}"; do
+            if kill -0 -- "-$pid" 2>/dev/null; then
+                sleep 0.1
+                continue 2
+            fi
+        done
+        return 0
+    done
+    return 1
+}
+
 cleanup() {
     local exit_code=$?
-    trap - EXIT INT TERM
+    trap - EXIT
+    trap '' INT TERM
 
     if ((${#PIDS[@]} > 0)); then
-        kill -TERM "${PIDS[@]}" 2>/dev/null || true
+        signal_groups INT
+        if ! wait_for_groups 5; then
+            signal_groups TERM
+            if ! wait_for_groups 2; then
+                signal_groups KILL
+                wait_for_groups 1 || true
+            fi
+        fi
+
         for pid in "${PIDS[@]}"; do
             wait "$pid" 2>/dev/null || true
         done
@@ -48,7 +83,9 @@ cleanup() {
     exit "$exit_code"
 }
 
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 start_node() {
     local package_name=$1
@@ -61,7 +98,7 @@ start_node() {
     fi
 
     echo "[bringup] starting $package_name/$executable"
-    ros2 run "$package_name" "$executable" "$@" &
+    setsid ros2 run "$package_name" "$executable" "$@" &
     PIDS+=("$!")
     NODE_NAMES+=("$package_name/$executable")
     NODE_MODES+=("$mode")
@@ -71,13 +108,16 @@ start_node() {
 start_node "object_detection" "object_detection_node"
 start_node "control" "control_node"
 start_node "traffic_light" "traffic_light_node" "oneshot"
-start_node "pose_tf" "pose_tf_node"
+start_node "pose_tf" "pose_tf_node" "persistent" \
+    --ros-args --params-file \
+    "${WORKSPACE_ROOT}/install/pose_tf/share/pose_tf/config/pose_tf.yaml"
+start_node "calibration" "calibration_node"
 start_node "path_planning" "path_planning_node" "persistent" \
     --ros-args --params-file \
     "${WORKSPACE_ROOT}/install/path_planning/share/path_planning/config/path_planning.yaml"
 
 echo "[bringup] starting visualizer/launch.sh"
-"${WORKSPACE_ROOT}/src/visualizer/launch.sh" &
+setsid "${WORKSPACE_ROOT}/src/visualizer/launch.sh" &
 PIDS+=("$!")
 NODE_NAMES+=("visualizer/launch.sh")
 NODE_MODES+=("persistent")
@@ -98,9 +138,9 @@ while ((${#PIDS[@]} > 0)); do
 
         name=${NODE_NAMES[$index]}
         mode=${NODE_MODES[$index]}
-        unset 'PIDS[index]' 'NODE_NAMES[index]' 'NODE_MODES[index]'
 
         if [[ "$mode" == "oneshot" && "$status" -eq 0 ]]; then
+            unset 'PIDS[index]' 'NODE_NAMES[index]' 'NODE_MODES[index]'
             echo "[bringup] one-shot node completed: $name"
             continue
         fi

@@ -1,10 +1,22 @@
 import math
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from nav_msgs.msg import Odometry
 
-from pose_tf.pose_tf_node import convert_odometry, load_origin
+from pose_tf.pose_tf_node import (
+    CALIBRATED_POSE_TOPIC,
+    DEFAULT_LIDAR_OFFSET_X_M,
+    PoseTfNode,
+    RAW_ODOMETRY_TOPIC,
+    convert_odometry,
+    load_origin,
+    transform_from_odometry,
+    validate_lidar_offset_x_m,
+    validate_tf_source,
+)
 
 
 def test_load_origin_uses_first_centerline_point(tmp_path: Path) -> None:
@@ -22,6 +34,27 @@ def test_load_origin_rejects_empty_centerline(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="at least one point"):
         load_origin(centerline)
+
+
+@pytest.mark.parametrize("source", [RAW_ODOMETRY_TOPIC, CALIBRATED_POSE_TOPIC])
+def test_validate_tf_source_accepts_supported_topics(source: str) -> None:
+    assert validate_tf_source(source) == source
+
+
+@pytest.mark.parametrize("source", ["/pose/calibride", "/pose", 1])
+def test_validate_tf_source_rejects_other_values(source: object) -> None:
+    with pytest.raises(ValueError, match="tf_source must be one of"):
+        validate_tf_source(source)
+
+
+def test_validate_lidar_offset_accepts_default() -> None:
+    assert validate_lidar_offset_x_m(DEFAULT_LIDAR_OFFSET_X_M) == -0.027
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+def test_validate_lidar_offset_rejects_nonfinite(value: float) -> None:
+    with pytest.raises(ValueError, match="lidar_offset_x_m must be finite"):
+        validate_lidar_offset_x_m(value)
 
 
 def test_convert_odometry_rotates_pose_and_tf_z_clockwise_90() -> None:
@@ -64,3 +97,67 @@ def test_convert_odometry_rotates_pose_and_tf_z_clockwise_90() -> None:
     assert transform.transform.translation.y == converted.pose.pose.position.y
     assert transform.transform.translation.z == converted.pose.pose.position.z
     assert transform.transform.rotation == converted.pose.pose.orientation
+
+
+def test_transform_from_calibrated_odometry_preserves_map_pose() -> None:
+    incoming = Odometry()
+    incoming.header.stamp.sec = 56
+    incoming.header.stamp.nanosec = 78
+    incoming.header.frame_id = "map"
+    incoming.child_frame_id = "lidar_link"
+    incoming.pose.pose.position.x = 4.2
+    incoming.pose.pose.position.y = 1.3
+    incoming.pose.pose.position.z = 0.1
+    incoming.pose.pose.orientation.z = -0.25
+    incoming.pose.pose.orientation.w = 0.968
+
+    transform = transform_from_odometry(incoming)
+
+    assert transform.header == incoming.header
+    assert transform.child_frame_id == incoming.child_frame_id
+    assert transform.transform.translation.x == incoming.pose.pose.position.x
+    assert transform.transform.translation.y == incoming.pose.pose.position.y
+    assert transform.transform.translation.z == incoming.pose.pose.position.z
+    assert transform.transform.rotation == incoming.pose.pose.orientation
+
+
+def test_calibrated_callback_applies_lidar_offset_along_yaw() -> None:
+    incoming = Odometry()
+    incoming.header.frame_id = "map"
+    incoming.child_frame_id = "lidar_link"
+    incoming.pose.pose.position.x = 4.2
+    incoming.pose.pose.position.y = 1.3
+    incoming.pose.pose.orientation.z = math.sqrt(0.5)
+    incoming.pose.pose.orientation.w = math.sqrt(0.5)
+    node = SimpleNamespace(
+        _lidar_offset_x_m=DEFAULT_LIDAR_OFFSET_X_M,
+        _broadcaster=Mock(),
+    )
+
+    PoseTfNode._on_calibrated_odometry(node, incoming)
+    transform = node._broadcaster.sendTransform.call_args.args[0]
+
+    assert node._broadcaster.sendTransform.call_count == 1
+    assert transform.transform.translation.x == pytest.approx(4.2)
+    assert transform.transform.translation.y == pytest.approx(1.273)
+    assert transform.transform.rotation == incoming.pose.pose.orientation
+
+
+@pytest.mark.parametrize(
+    ("tf_source", "expected_tf_count"),
+    [(RAW_ODOMETRY_TOPIC, 1), (CALIBRATED_POSE_TOPIC, 0)],
+)
+def test_raw_odometry_always_publishes_pose_but_only_selected_tf(
+    tf_source: str, expected_tf_count: int
+) -> None:
+    node = SimpleNamespace(
+        _origin=(1.4, 3.4),
+        _tf_source=tf_source,
+        _publisher=Mock(),
+        _broadcaster=Mock(),
+    )
+
+    PoseTfNode._on_odometry(node, Odometry())
+
+    assert node._publisher.publish.call_count == 1
+    assert node._broadcaster.sendTransform.call_count == expected_tf_count

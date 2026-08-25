@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -e
 
-exec ros2 run pose_tf pose_tf_node
+exec ros2 launch pose_tf pose_tf.launch.py
