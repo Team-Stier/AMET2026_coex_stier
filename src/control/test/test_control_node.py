@@ -8,7 +8,11 @@ import rclpy
 from rclpy.parameter import Parameter
 from std_msgs.msg import Bool
 
-from control.control_node import ControlNode
+from control.control_node import (
+    ControlNode,
+    DEFAULT_CALIBRATED_POSE_ORIGIN_X_FROM_LIDAR_M,
+    reference_offset_from_calibrated_pose,
+)
 
 
 class Recorder:
@@ -19,6 +23,28 @@ class Recorder:
         self.values.append(message.data)
 
 
+@pytest.mark.parametrize(
+    ("reference_x_from_lidar_m", "expected_offset_m"),
+    [
+        (0.027, 0.0),
+        (0.0, -0.027),
+        (0.10, 0.073),
+        (-0.10, -0.127),
+    ],
+)
+def test_reference_offset_uses_lidar_origin(
+    reference_x_from_lidar_m, expected_offset_m
+):
+    assert reference_offset_from_calibrated_pose(
+        reference_x_from_lidar_m
+    ) == pytest.approx(expected_offset_m)
+
+
+def test_reference_offset_rejects_nonfinite_value():
+    with pytest.raises(ValueError, match="must be finite"):
+        reference_offset_from_calibrated_pose(math.nan)
+
+
 def test_control_node_latches_first_true_gosign():
     rclpy.init()
     node = ControlNode()
@@ -26,6 +52,17 @@ def test_control_node_latches_first_true_gosign():
     node.steering_pub = Recorder()
     node.camera_pan_pub = Recorder()
     try:
+        assert node.reference_point_x_from_lidar_m == pytest.approx(
+            DEFAULT_CALIBRATED_POSE_ORIGIN_X_FROM_LIDAR_M
+        )
+        assert node.calibrated_pose_origin_x_from_lidar_m == pytest.approx(
+            DEFAULT_CALIBRATED_POSE_ORIGIN_X_FROM_LIDAR_M
+        )
+        assert (
+            node.controller.pure_pursuit.config.reference_point_offset_m
+            == pytest.approx(0.0)
+        )
+
         pose = Odometry()
         pose.header.frame_id = "map"
         pose.pose.pose.orientation.w = 1.0
@@ -210,6 +247,9 @@ def test_control_node_applies_parameter_overrides():
             Parameter("path_timeout_sec", value=0.8),
             Parameter("watchdog_period_sec", value=0.2),
             Parameter("maximum_speed_variance_m2_s2", value=0.5),
+            Parameter(
+                "calibrated_pose.origin_x_from_lidar_m", value=0.03
+            ),
             Parameter("speed_lookahead.enabled", value=True),
             Parameter("speed_lookahead.lookahead_time_sec", value=0.6),
             Parameter("speed_lookahead.min_lookahead_m", value=0.3),
@@ -219,6 +259,9 @@ def test_control_node_applies_parameter_overrides():
             ),
             Parameter(
                 "pure_pursuit.lookahead_distance_m", value=0.7
+            ),
+            Parameter(
+                "pure_pursuit.reference_point_x_from_lidar_m", value=-0.12
             ),
             Parameter(
                 "longitudinal_pid.enabled", value=True
@@ -236,6 +279,9 @@ def test_control_node_applies_parameter_overrides():
         assert node.path_timeout_sec == pytest.approx(0.8)
         assert node.watchdog_period_sec == pytest.approx(0.2)
         assert node.maximum_speed_variance_m2_s2 == pytest.approx(0.5)
+        assert node.calibrated_pose_origin_x_from_lidar_m == pytest.approx(
+            0.03
+        )
         assert node.controller.config.speed_lookahead.enabled is True
         assert (
             node.controller.config.speed_lookahead.lookahead_time_sec
@@ -256,6 +302,11 @@ def test_control_node_applies_parameter_overrides():
         assert (
             node.controller.pure_pursuit.config.lookahead_distance_m
             == pytest.approx(0.7)
+        )
+        assert node.reference_point_x_from_lidar_m == pytest.approx(-0.12)
+        assert (
+            node.controller.pure_pursuit.config.reference_point_offset_m
+            == pytest.approx(-0.12 - 0.03)
         )
     finally:
         node.destroy_node()

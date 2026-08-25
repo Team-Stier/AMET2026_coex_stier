@@ -50,7 +50,16 @@ class PurePursuit:
             raise ValueError("lookahead distance override must be positive")
 
         points = self._coerce_path(path)
-        distances = [distance_xy(state.x, state.y, p.x, p.y) for p in points]
+        reference_x = state.x + (
+            self.config.reference_point_offset_m * math.cos(state.yaw)
+        )
+        reference_y = state.y + (
+            self.config.reference_point_offset_m * math.sin(state.yaw)
+        )
+        distances = [
+            distance_xy(reference_x, reference_y, p.x, p.y)
+            for p in points
+        ]
 
         if self.config.closed_loop:
             logical_count = len(points)
@@ -84,7 +93,9 @@ class PurePursuit:
 
         target = points[target_index]
         target_distance = distances[target_index]
-        target_heading = math.atan2(target.y - state.y, target.x - state.x)
+        target_heading = math.atan2(
+            target.y - reference_y, target.x - reference_x
+        )
         alpha = normalize_angle(target_heading - state.yaw)
 
         # Use the actual target distance near the end of a finite path. A tiny

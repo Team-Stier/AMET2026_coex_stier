@@ -21,6 +21,37 @@ from .pid import PIDController
 from .pure_pursuit import PurePursuit
 
 
+# /pose/calibration currently publishes the ego/planner point while its TF
+# applies the -0.027 m base-to-LiDAR offset. This compatibility default is
+# separately configurable because it is not the user-facing tracking point.
+DEFAULT_CALIBRATED_POSE_ORIGIN_X_FROM_LIDAR_M = 0.027
+
+
+def reference_offset_from_calibrated_pose(
+    reference_point_x_from_lidar_m: float,
+    calibrated_pose_origin_x_from_lidar_m: float = (
+        DEFAULT_CALIBRATED_POSE_ORIGIN_X_FROM_LIDAR_M
+    ),
+) -> float:
+    """Convert a LiDAR-relative reference x to the calibrated-pose origin."""
+
+    if not all(
+        math.isfinite(value)
+        for value in (
+            reference_point_x_from_lidar_m,
+            calibrated_pose_origin_x_from_lidar_m,
+        )
+    ):
+        raise ValueError("LiDAR-relative reference offsets must be finite")
+    offset = (
+        reference_point_x_from_lidar_m
+        - calibrated_pose_origin_x_from_lidar_m
+    )
+    if not math.isfinite(offset):
+        raise ValueError("calibrated-pose reference offset must be finite")
+    return offset
+
+
 class ControlNode(Node):
     def __init__(self, **kwargs):
         super().__init__("control_node", **kwargs)
@@ -50,6 +81,14 @@ class ControlNode(Node):
             or self.maximum_speed_variance_m2_s2 <= 0.0
         ):
             raise ValueError("control timeouts and speed variance must be positive")
+        self.calibrated_pose_origin_x_from_lidar_m = self._float_parameter(
+            "calibrated_pose.origin_x_from_lidar_m",
+            DEFAULT_CALIBRATED_POSE_ORIGIN_X_FROM_LIDAR_M,
+        )
+        self.reference_point_x_from_lidar_m = self._float_parameter(
+            "pure_pursuit.reference_point_x_from_lidar_m",
+            DEFAULT_CALIBRATED_POSE_ORIGIN_X_FROM_LIDAR_M,
+        )
         pure_pursuit_config = PurePursuitConfig(
             wheelbase_m=self._float_parameter(
                 "pure_pursuit.wheelbase_m", 0.18
@@ -62,6 +101,10 @@ class ControlNode(Node):
             ),
             closed_loop=self._bool_parameter(
                 "pure_pursuit.closed_loop", False
+            ),
+            reference_point_offset_m=reference_offset_from_calibrated_pose(
+                self.reference_point_x_from_lidar_m,
+                self.calibrated_pose_origin_x_from_lidar_m,
             ),
         )
         pid_config = PIDConfig(
