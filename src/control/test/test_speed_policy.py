@@ -6,19 +6,21 @@ from control.speed_policy import policy_for_max_speed
 
 
 def test_speed_policy_anchors_interpolation_bounds_and_determinism():
-    for cap in (1.5, 2.0, 2.5):
+    for cap in (1.0, 1.5, 2.0, 2.5):
         policy = policy_for_max_speed(cap)
         assert policy["source_lower_knot_m_s"] == cap
         assert policy["source_upper_knot_m_s"] == cap
         assert policy["interpolation_ratio"] == 0.0
 
-    middle = policy_for_max_speed(1.75)
-    assert middle["source_lower_knot_m_s"] == 1.5
-    assert middle["source_upper_knot_m_s"] == 2.0
+    middle = policy_for_max_speed(1.25)
+    assert middle["source_lower_knot_m_s"] == 1.0
+    assert middle["source_upper_knot_m_s"] == 1.5
     assert middle["interpolation_ratio"] == 0.5
-    assert middle["optimized_curve_speed_max_m_s"] == 1.75
+    assert middle["optimized_curve_speed_max_m_s"] == 1.25
+    assert middle["curve_entry_preview_m"] == pytest.approx(1.05)
+    assert middle["max_lateral_acceleration_m_s2"] == pytest.approx(0.90)
 
-    for cap in (1.5, 1.75, 2.0, 2.25, 2.5):
+    for cap in (1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5):
         policy = policy_for_max_speed(cap)
         speeds = (
             policy["optimized_curve_speed_min_m_s"],
@@ -41,6 +43,6 @@ def test_speed_policy_anchors_interpolation_bounds_and_determinism():
         assert all(math.isfinite(value) for value in policy["lookahead_parameters"].values())
         assert policy == policy_for_max_speed(cap)
 
-    for cap in (1.49, 2.51, math.inf, math.nan):
+    for cap in (0.99, 2.51, math.inf, math.nan):
         with pytest.raises(ValueError):
             policy_for_max_speed(cap)

@@ -19,6 +19,7 @@ from .models import (
 )
 from .pid import PIDController
 from .pure_pursuit import PurePursuit
+from .speed_policy import policy_for_max_speed
 
 
 class ControlNode(Node):
@@ -28,6 +29,12 @@ class ControlNode(Node):
         self.target_speed = self._float_parameter("target_speed_m_s", 0.55)
         if self.target_speed < 0.0:
             raise ValueError("target_speed_m_s must not be negative")
+        self.selected_max_speed = self._float_parameter(
+            "selected_max_speed_m_s", max(self.target_speed, 1.0)
+        )
+        speed_policy = policy_for_max_speed(self.selected_max_speed)
+        self.target_speed = min(self.target_speed, self.selected_max_speed)
+        lookahead_policy = speed_policy["lookahead_parameters"]
         self.camera_pan_command = self._float_parameter(
             "camera_pan_command_rad", 0.0
         )
@@ -84,37 +91,47 @@ class ControlNode(Node):
         adaptive_config = AdaptiveControlConfig(
             enabled=self._bool_parameter("adaptive_control.enabled", False),
             preview_distance_m=self._float_parameter(
-                "adaptive_control.preview_distance_m", 1.0
+                "adaptive_control.preview_distance_m",
+                speed_policy["curve_entry_preview_m"],
             ),
             min_lookahead_m=self._float_parameter(
-                "adaptive_control.min_lookahead_m", 0.25
+                "adaptive_control.min_lookahead_m",
+                lookahead_policy["adaptive_min_lookahead_m"],
             ),
             max_lookahead_m=self._float_parameter(
-                "adaptive_control.max_lookahead_m", 1.50
+                "adaptive_control.max_lookahead_m",
+                lookahead_policy["adaptive_max_lookahead_m"],
             ),
             curvature_reference_inv_m=self._float_parameter(
-                "adaptive_control.curvature_reference_inv_m", 2.0
+                "adaptive_control.curvature_reference_inv_m",
+                lookahead_policy["curvature_reference_inv_m"],
             ),
             max_lateral_acceleration_m_s2=self._float_parameter(
-                "adaptive_control.max_lateral_acceleration_m_s2", 0.8
+                "adaptive_control.max_lateral_acceleration_m_s2",
+                speed_policy["max_lateral_acceleration_m_s2"],
             ),
             min_speed_limit_m_s=self._float_parameter(
-                "adaptive_control.min_speed_limit_m_s", 0.30
+                "adaptive_control.min_speed_limit_m_s",
+                speed_policy["optimized_curve_speed_min_m_s"],
             ),
             max_speed_limit_m_s=self._float_parameter(
-                "adaptive_control.max_speed_limit_m_s", 0.80
+                "adaptive_control.max_speed_limit_m_s",
+                self.selected_max_speed,
             ),
         )
         speed_lookahead_config = SpeedLookaheadConfig(
             enabled=self._bool_parameter("speed_lookahead.enabled", True),
             lookahead_time_sec=self._float_parameter(
-                "speed_lookahead.lookahead_time_sec", 0.55
+                "speed_lookahead.lookahead_time_sec",
+                lookahead_policy["speed_lookahead_time_s"],
             ),
             min_lookahead_m=self._float_parameter(
-                "speed_lookahead.min_lookahead_m", 0.45
+                "speed_lookahead.min_lookahead_m",
+                lookahead_policy["speed_min_lookahead_m"],
             ),
             max_lookahead_m=self._float_parameter(
-                "speed_lookahead.max_lookahead_m", 1.50
+                "speed_lookahead.max_lookahead_m",
+                lookahead_policy["speed_max_lookahead_m"],
             ),
         )
         controller_config = ControllerConfig(

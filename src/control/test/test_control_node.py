@@ -205,6 +205,7 @@ def test_control_node_applies_parameter_overrides():
     node = ControlNode(
         parameter_overrides=[
             Parameter("target_speed_m_s", value=1.2),
+            Parameter("selected_max_speed_m_s", value=1.25),
             Parameter("max_speed_m_s", value=2.5),
             Parameter("pose_timeout_sec", value=0.7),
             Parameter("path_timeout_sec", value=0.8),
@@ -231,6 +232,7 @@ def test_control_node_applies_parameter_overrides():
     )
     try:
         assert node.target_speed == pytest.approx(1.2)
+        assert node.selected_max_speed == pytest.approx(1.25)
         assert node.camera_pan_command == pytest.approx(0.1)
         assert node.pose_timeout_sec == pytest.approx(0.7)
         assert node.path_timeout_sec == pytest.approx(0.8)
@@ -252,6 +254,11 @@ def test_control_node_applies_parameter_overrides():
         assert node.controller.config.max_speed_m_s == pytest.approx(2.5)
         assert node.controller.config.longitudinal_pid_enabled is True
         assert node.controller.config.adaptive_control.enabled is True
+        assert node.controller.config.adaptive_control.preview_distance_m == pytest.approx(1.05)
+        assert (
+            node.controller.config.adaptive_control.max_lateral_acceleration_m_s2
+            == pytest.approx(0.90)
+        )
         assert node.controller.pid.config.kp == pytest.approx(0.4)
         assert (
             node.controller.pure_pursuit.config.lookahead_distance_m
