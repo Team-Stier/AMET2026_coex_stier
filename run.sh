@@ -235,7 +235,6 @@ start_node "object_detection" "object_detection_node"
 start_node "control" "control_node" "persistent" \
     --ros-args --params-file \
     "${WORKSPACE_ROOT}/install/control/share/control/config/control.yaml"
-start_node "traffic_light" "traffic_light_node" "oneshot"
 start_node "pose_tf" "pose_tf_node" "persistent" \
     --ros-args --params-file \
     "${WORKSPACE_ROOT}/install/pose_tf/share/pose_tf/config/pose_tf.yaml"
@@ -243,6 +242,7 @@ start_node "calibration" "calibration_node"
 start_node "path_planning" "path_planning_node" "persistent" \
     --ros-args --params-file \
     "${WORKSPACE_ROOT}/install/path_planning/share/path_planning/config/path_planning.yaml"
+start_node "traffic_light" "traffic_light_node" "oneshot"
 
 echo "[bringup] starting visualizer/launch.sh"
 setsid env --default-signal=INT --default-signal=TERM --default-signal=QUIT \

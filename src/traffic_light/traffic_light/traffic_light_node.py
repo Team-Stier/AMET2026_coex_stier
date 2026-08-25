@@ -19,6 +19,19 @@ GREEN_CLASS_ID = 2
 EXPECTED_NAMES = {0: "red", 1: "yellow", 2: "green"}
 
 
+def configure_ncnn_threads(num_threads: int) -> None:
+    import ncnn
+
+    default_net = ncnn.Net
+
+    def configured_net():
+        net = default_net()
+        net.opt.num_threads = num_threads
+        return net
+
+    ncnn.Net = configured_net
+
+
 def read_model_image_size(model_path: Path) -> int:
     metadata_path = model_path / "metadata.yaml"
     if not metadata_path.is_file():
@@ -104,6 +117,9 @@ class TrafficLightNode(Node):
         required_green_frames = int(
             self.declare_parameter("green_confirm_frames", 3).value
         )
+        ncnn_threads = int(
+            self.declare_parameter("ncnn_threads", 1).value
+        )
         self.image_timeout_seconds = float(
             self.declare_parameter("image_timeout_seconds", 1.0).value
         )
@@ -117,11 +133,14 @@ class TrafficLightNode(Node):
             raise ValueError("confidence must be in the range (0, 1]")
         if self.image_timeout_seconds <= 0.0:
             raise ValueError("image_timeout_seconds must be positive")
+        if ncnn_threads < 1:
+            raise ValueError("ncnn_threads must be at least 1")
 
         self.image_size = resolve_model_image_size(
             model_path, requested_image_size
         )
 
+        configure_ncnn_threads(ncnn_threads)
         self.model = YOLO(model_path, task="detect")
         if self.model.names != EXPECTED_NAMES:
             raise ValueError(
@@ -157,7 +176,8 @@ class TrafficLightNode(Node):
         self.watchdog = self.create_timer(0.1, self.on_watchdog)
         self.get_logger().info(
             f"loaded traffic-light model: {model_path} "
-            f"({self.image_size}x{self.image_size})"
+            f"({self.image_size}x{self.image_size}, "
+            f"{ncnn_threads} NCNN thread(s))"
         )
         if self.visualizer_enabled:
             self.get_logger().info(
