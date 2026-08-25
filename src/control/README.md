@@ -14,12 +14,20 @@ models before calling the controller.
 
 ## Current defaults
 
-- lookahead: 0.25–0.40 m
+- configuration: `config/control.yaml`
+- target speed: 0.55 m/s
+- hardware speed cap: 3.0 m/s
+- base lookahead: 0.45 m
+- adaptive lookahead: 0.25–0.40 m
 - preview distance: 1.0 m
 - curvature reference: 2.0 1/m
 - maximum lateral acceleration: 0.8 m/s²
 - adaptive speed range: 0.30–0.80 m/s
 - longitudinal PID: OFF by default
+
+`run.sh` loads the installed `control.yaml` automatically. Change controller
+parameters in the source YAML and rebuild before running. `target_speed_m_s`
+sets the normal command, while `max_speed_m_s` is the final safety clamp.
 
 ## Controller interface
 
