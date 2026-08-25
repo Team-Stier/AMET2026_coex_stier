@@ -20,11 +20,21 @@ from .models import (
 from .pid import PIDController
 from .pure_pursuit import PurePursuit
 
+POSE_TOPICS = ("/pose", "/pose/calibration")
+
 
 class ControlNode(Node):
     def __init__(self, **kwargs):
         super().__init__("control_node", **kwargs)
 
+        self.pose_topic = str(
+            self.declare_parameter("pose_topic", "/pose").value
+        )
+        if self.pose_topic not in POSE_TOPICS:
+            raise ValueError(
+                f"pose_topic must be one of {POSE_TOPICS}, "
+                f"got {self.pose_topic!r}"
+            )
         self.target_speed = self._float_parameter("target_speed_m_s", 0.55)
         if self.target_speed < 0.0:
             raise ValueError("target_speed_m_s must not be negative")
@@ -147,7 +157,7 @@ class ControlNode(Node):
             Bool, "/gosign", self.on_gosign, 10
         )
         self.pose_sub = self.create_subscription(
-            Odometry, "/pose/calibration", self.on_pose, qos_profile_sensor_data
+            Odometry, self.pose_topic, self.on_pose, qos_profile_sensor_data
         )
         self.watchdog_timer = self.create_timer(
             self.watchdog_period_sec, self.on_watchdog

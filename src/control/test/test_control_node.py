@@ -204,6 +204,7 @@ def test_control_node_applies_parameter_overrides():
     rclpy.init()
     node = ControlNode(
         parameter_overrides=[
+            Parameter("pose_topic", value="/pose/calibration"),
             Parameter("target_speed_m_s", value=1.2),
             Parameter("max_speed_m_s", value=2.5),
             Parameter("pose_timeout_sec", value=0.7),
@@ -230,6 +231,7 @@ def test_control_node_applies_parameter_overrides():
         ]
     )
     try:
+        assert node.pose_topic == "/pose/calibration"
         assert node.target_speed == pytest.approx(1.2)
         assert node.camera_pan_command == pytest.approx(0.1)
         assert node.pose_timeout_sec == pytest.approx(0.7)

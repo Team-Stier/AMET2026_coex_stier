@@ -90,7 +90,7 @@ class TrafficLightNode(Node):
             / "models"
             / "traffic_light_yolo26n-3"
             / "deploy"
-            / "traffic_light_384_ncnn_model"
+            / "traffic_light_320_ncnn_model"
         )
         model_path = Path(
             self.declare_parameter("model_path", str(default_model_path)).value

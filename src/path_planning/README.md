@@ -25,8 +25,8 @@ RDDF와 차량 pose는 전역 `map` 좌표를 사용한다. 기본 입력 `/pose
 `/odom/laser`의 위치와 orientation을 Z축 시계방향 `90°` 회전한 뒤 RDDF 첫 centerline
 점을 더해 SIM GT와 정렬한 `map` frame
 `nav_msgs/Odometry`다. Path Planning Node는 이 좌표를 다시 정합하거나 변환하지 않고
-Registry에 그대로 저장한다. `use_calibride_odom: true`에서 선택하는
-`/odom/calibride`도 같은 `map` frame 계약을 따라야 한다.
+Registry에 그대로 저장한다. `pose_topic: "/pose/calibration"`으로 선택하는
+보정 pose도 같은 `map` frame 계약을 따라야 한다.
 
 - 선택된 pose는 `lidar_link` 원점의 `(x_map, y_map, yaw_map)`를 나타낸다.
 - `/object_info`의 중심점은 `lidar_link` 로컬 좌표다. `+x`는 전방, `+y`는 좌측이다.
@@ -42,8 +42,7 @@ Registry에 그대로 저장한다. `use_calibride_odom: true`에서 선택하�
 | 구분 | 이름 | 형식 | 계약 |
 |---|---|---|---|
 | 정적 입력 | `rddf_file` | CSV 경로 | `center_x_m,center_y_m,inner_x_m,inner_y_m,outer_x_m,outer_y_m` 열을 가진 폐곡선 |
-| 동적 입력 | `/pose` | `nav_msgs/Odometry` | `use_calibride_odom: false`일 때만 구독하는 `map` frame 차량 pose와 속도 |
-| 동적 입력 | `/odom/calibride` | `nav_msgs/Odometry` | `use_calibride_odom: true`일 때만 구독하는 차량 pose와 속도 |
+| 동적 입력 | `pose_topic` | `nav_msgs/Odometry` | `/pose` 또는 `/pose/calibration` 중 설정으로 선택한 `map` frame 차량 pose와 속도 |
 | 동적 입력 | `/object_info` | `interfaces/Objects` | 뒤 차축 중심 기준 차량 로컬 좌표의 장애물 중심점 |
 | 출력 | `/path` | `nav_msgs/Path` | `map` 좌표의 전방 로컬 구간, pose 방향 포함 |
 | 디버그 출력 | `/path_planning/debug/search_tree` | `interfaces/SearchTree` | `map` 좌표인 직전 성공 Hybrid A* 탐색의 노드 위치·yaw와 parent index |
@@ -55,9 +54,9 @@ Registry에 그대로 저장한다. `use_calibride_odom: true`에서 선택하�
 차량 크기는 별도의 차량 직사각형 충돌 검사에서 한 번만 반영한다. 좌표가 유효하지 않은
 관측은 사용하지 않고 진단 로그를 남긴다.
 
-노드는 시작할 때 `use_calibride_odom`을 한 번 읽고 선택된 odometry 토픽 하나에만
-subscription을 만든다. `true`이면 `/odom/calibride`만 사용하고 `/pose`는 구독하거나
-fallback으로 사용하지 않는다. `false`이면 `/pose`만 사용한다.
+노드는 시작할 때 `pose_topic`을 한 번 읽고 선택된 odometry 토픽 하나에만
+subscription을 만든다. 값은 `/pose` 또는 `/pose/calibration`이어야 하며 다른 토픽으로
+fallback하지 않는다.
 
 ## 4. 실행 전략과 연속 계획
 
@@ -178,7 +177,7 @@ classDiagram
     }
     class PathPlanningNode {
         <<rclcpp::Node>>
-        -bool use_calibride_odom
+        -string pose_topic
         -bool publish_search_tree_debug
         -double vehicle_max_steering_deg
         -vector~double~ steering_candidates_deg
@@ -363,7 +362,7 @@ sequenceDiagram
     participant CTRL as ControlNode
 
     loop 선택된 odometry 메시지마다
-        LOC->>N: /pose 또는 /odom/calibride 중 선택된 하나
+        LOC->>N: pose_topic으로 선택된 /pose 또는 /pose/calibration
         N->>N: map frame pose 검증
         N->>REG: update_pose(map pose)
         N->>LP: slice(map pose)
@@ -524,7 +523,7 @@ YAML을 `--params-file`로 전달한다.
 path_planning_node:
   ros__parameters:
     rddf_file: "rddf/rddf.csv"
-    use_calibride_odom: false
+    pose_topic: "/pose"
     vehicle_width_m: 0.20
     vehicle_length_m: 0.28
     wheelbase_m: 0.18
@@ -574,7 +573,7 @@ path_planning_node:
    완료된 각 계획의 실행 시간을 밀리초 단위 INFO 로그로 남긴다.
 4. 장애물 중심점은 최신 선택 odometry pose로 전역 변환한 뒤 양자화 없이 Registry의
    장애물 목록을 교체한다. 이 입력 갱신은 Registry의 기존 경로를 바꾸지 않는다.
-5. 선택된 `/pose` 또는 `/odom/calibride`는 `map` frame이어야 하며 Registry pose,
+5. 선택된 `/pose` 또는 `/pose/calibration`은 `map` frame이어야 하며 Registry pose,
    장애물, `/path`, SearchTree의 frame도 모두 `map`이다.
 6. 같은 길이의 primitive는 곡률과 곡률 변화에 관계없이 같은 비용이다.
 7. 더 짧은 경로에서 누적 거리 비용이 감소한다.
