@@ -4,6 +4,8 @@
 /log/
 /records/
 /maps/
+/rosbag/*
+!/rosbag/.gitkeep
 
 # Local Superpowers planning artifacts
 /docs/superpowers/
