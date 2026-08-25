@@ -1,0 +1,22 @@
+description: Ultralytics YOLO26n model trained on C:\Users\suhyeon\Desktop\labeling_yolo\real_traffic_light_finetune\data.yaml
+author: Ultralytics
+date: '2026-08-25T13:19:57.542747+00:00'
+version: 8.4.117
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: detect
+head: Detect
+batch: 1
+imgsz:
+- 320
+- 320
+names:
+  0: red
+  1: yellow
+  2: green
+args:
+  batch: 1
+  quantize: null
+channels: 3
+end2end: false

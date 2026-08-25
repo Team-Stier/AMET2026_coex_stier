@@ -27,8 +27,8 @@
 | 디렉터리 | 고정 입력 크기 | 용도 |
 | --- | --- | --- |
 | `traffic_light_640_ncnn_model` | `640x640` | 정확도 우선 |
-| `traffic_light_384_ncnn_model` | `384x384` | 속도와 정확도의 균형, 기본값 |
-| `traffic_light_320_ncnn_model` | `320x320` | 속도 우선 |
+| `traffic_light_384_ncnn_model` | `384x384` | 속도와 정확도의 균형 |
+| `traffic_light_320_ncnn_model` | `320x320` | 속도 우선, 기본값 |
 
 모델은 `models/traffic_light_yolo26n-3/deploy` 아래에 설치됩니다. 클래스 ID는
 `0: red`, `1: yellow`, `2: green`입니다. 노드 시작 시 모델의 클래스 구성이
@@ -82,7 +82,7 @@ find "$model_root" -maxdepth 1 -type d -name '*_ncnn_model' -printf '%f\n' | sor
 노드를 실행할 때 모델 하나를 선택하며 실행 중에는 교체하지 않습니다. 다른
 모델을 시험하려면 노드를 `Ctrl+C`로 종료한 뒤 다시 실행합니다.
 
-기본 모델인 `traffic_light_384_ncnn_model`은 `model_path` 없이 실행할 수
+기본 모델인 `traffic_light_320_ncnn_model`은 `model_path` 없이 실행할 수
 있습니다.
 
 ```bash
@@ -197,7 +197,7 @@ NCNN 모델은 디렉터리별 고정 입력 크기를 사용합니다. 예를 �
 
 ```bash
 model_root="$(ros2 pkg prefix --share traffic_light)/models/traffic_light_yolo26n-3/deploy"
-sed -n '/imgsz:/,+2p' "$model_root/traffic_light_384_ncnn_model/metadata.yaml"
+sed -n '/imgsz:/,+2p' "$model_root/traffic_light_320_ncnn_model/metadata.yaml"
 ```
 
 ## 실제 `/gosign` 발행
@@ -216,7 +216,7 @@ ros2 run traffic_light traffic_light_node
 
 | 파라미터 | 기본값 | 설명 |
 | --- | --- | --- |
-| `model_path` | 설치된 `traffic_light_384_ncnn_model` 경로 | 사용할 고정 크기 NCNN 모델 디렉터리 |
+| `model_path` | 설치된 `traffic_light_320_ncnn_model` 경로 | 사용할 고정 크기 NCNN 모델 디렉터리 |
 | `confidence` | `0.75` | 검출 confidence 기준값 |
 | `image_size` | `0` | `0`이면 모델 메타데이터 자동 사용. 지정 시 모델 크기와 같아야 함 |
 | `green_confirm_frames` | `3` | 주행 허용에 필요한 연속 초록 프레임 수 |
