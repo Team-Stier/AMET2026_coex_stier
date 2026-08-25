@@ -1,6 +1,7 @@
 """Small, ROS-independent data models used by the controller algorithms."""
 
 from dataclasses import dataclass, field
+import math
 from typing import Optional, Sequence, Tuple
 
 
@@ -51,6 +52,32 @@ class PurePursuitResult:
     nearest_index: int
     alpha_rad: float
     target_distance_m: float
+    lookahead_distance_m: float
+
+
+@dataclass(frozen=True)
+class SpeedLookaheadConfig:
+    """Speed-based Pure Pursuit lookahead parameters in SI units."""
+
+    enabled: bool = False
+    lookahead_time_sec: float = 0.55
+    min_lookahead_m: float = 0.45
+    max_lookahead_m: float = 1.50
+
+    def __post_init__(self) -> None:
+        values = (
+            self.lookahead_time_sec,
+            self.min_lookahead_m,
+            self.max_lookahead_m,
+        )
+        if not all(math.isfinite(value) for value in values):
+            raise ValueError("speed lookahead parameters must be finite")
+        if self.lookahead_time_sec <= 0.0:
+            raise ValueError("lookahead_time_sec must be positive")
+        if self.min_lookahead_m <= 0.0:
+            raise ValueError("min_lookahead_m must be positive")
+        if self.min_lookahead_m > self.max_lookahead_m:
+            raise ValueError("min_lookahead_m must not exceed max_lookahead_m")
 
 
 @dataclass(frozen=True)
@@ -93,7 +120,7 @@ class AdaptiveControlConfig:
     enabled: bool = False
     preview_distance_m: float = 1.0
     min_lookahead_m: float = 0.25
-    max_lookahead_m: float = 0.40
+    max_lookahead_m: float = 1.50
     curvature_reference_inv_m: float = 2.0
     max_lateral_acceleration_m_s2: float = 0.8
     min_speed_limit_m_s: float = 0.30
@@ -136,6 +163,9 @@ class ControllerConfig:
     longitudinal_pid_enabled: bool
     max_speed_m_s: float
     stop_speed_threshold_m_s: float = 1.0e-6
+    speed_lookahead: SpeedLookaheadConfig = field(
+        default_factory=SpeedLookaheadConfig
+    )
     adaptive_control: AdaptiveControlConfig = field(
         default_factory=AdaptiveControlConfig
     )

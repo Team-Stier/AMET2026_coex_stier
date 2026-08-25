@@ -210,6 +210,10 @@ def test_control_node_applies_parameter_overrides():
             Parameter("path_timeout_sec", value=0.8),
             Parameter("watchdog_period_sec", value=0.2),
             Parameter("maximum_speed_variance_m2_s2", value=0.5),
+            Parameter("speed_lookahead.enabled", value=True),
+            Parameter("speed_lookahead.lookahead_time_sec", value=0.6),
+            Parameter("speed_lookahead.min_lookahead_m", value=0.3),
+            Parameter("speed_lookahead.max_lookahead_m", value=1.1),
             Parameter(
                 "camera_pan_command_rad", value=0.1
             ),
@@ -232,6 +236,19 @@ def test_control_node_applies_parameter_overrides():
         assert node.path_timeout_sec == pytest.approx(0.8)
         assert node.watchdog_period_sec == pytest.approx(0.2)
         assert node.maximum_speed_variance_m2_s2 == pytest.approx(0.5)
+        assert node.controller.config.speed_lookahead.enabled is True
+        assert (
+            node.controller.config.speed_lookahead.lookahead_time_sec
+            == pytest.approx(0.6)
+        )
+        assert (
+            node.controller.config.speed_lookahead.min_lookahead_m
+            == pytest.approx(0.3)
+        )
+        assert (
+            node.controller.config.speed_lookahead.max_lookahead_m
+            == pytest.approx(1.1)
+        )
         assert node.controller.config.max_speed_m_s == pytest.approx(2.5)
         assert node.controller.config.longitudinal_pid_enabled is True
         assert node.controller.config.adaptive_control.enabled is True

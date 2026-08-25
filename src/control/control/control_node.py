@@ -14,6 +14,7 @@ from .models import (
     ControllerConfig,
     PIDConfig,
     PurePursuitConfig,
+    SpeedLookaheadConfig,
     VehicleState,
 )
 from .pid import PIDController
@@ -89,7 +90,7 @@ class ControlNode(Node):
                 "adaptive_control.min_lookahead_m", 0.25
             ),
             max_lookahead_m=self._float_parameter(
-                "adaptive_control.max_lookahead_m", 0.40
+                "adaptive_control.max_lookahead_m", 1.50
             ),
             curvature_reference_inv_m=self._float_parameter(
                 "adaptive_control.curvature_reference_inv_m", 2.0
@@ -104,6 +105,18 @@ class ControlNode(Node):
                 "adaptive_control.max_speed_limit_m_s", 0.80
             ),
         )
+        speed_lookahead_config = SpeedLookaheadConfig(
+            enabled=self._bool_parameter("speed_lookahead.enabled", True),
+            lookahead_time_sec=self._float_parameter(
+                "speed_lookahead.lookahead_time_sec", 0.55
+            ),
+            min_lookahead_m=self._float_parameter(
+                "speed_lookahead.min_lookahead_m", 0.45
+            ),
+            max_lookahead_m=self._float_parameter(
+                "speed_lookahead.max_lookahead_m", 1.50
+            ),
+        )
         controller_config = ControllerConfig(
             longitudinal_pid_enabled=self._bool_parameter(
                 "longitudinal_pid.enabled", False
@@ -112,6 +125,7 @@ class ControlNode(Node):
             stop_speed_threshold_m_s=self._float_parameter(
                 "stop_speed_threshold_m_s", 1.0e-6
             ),
+            speed_lookahead=speed_lookahead_config,
             adaptive_control=adaptive_config,
         )
         self.controller = ControllerCore(

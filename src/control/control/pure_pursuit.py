@@ -107,4 +107,5 @@ class PurePursuit:
             nearest_index=nearest_index,
             alpha_rad=alpha,
             target_distance_m=target_distance,
+            lookahead_distance_m=lookahead_distance,
         )
