@@ -41,5 +41,10 @@ compile_commands.json
 /src/calibration/rosbags/
 /src/calibration/rosbag/
 
+# Traffic light model images
+/src/traffic_light/**/*.[pP][nN][gG]
+/src/traffic_light/**/*.[jJ][pP][gG]
+/src/traffic_light/**/*.[jJ][pP][eE][gG]
+
 # 뭐여
 /AMET2026_coex_stier/
