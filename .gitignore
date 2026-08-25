@@ -32,6 +32,7 @@ compile_commands.json
 
 # Codex local artifacts
 .codex*
+/randomize_cones.sh
 
 # Local PhysiCar app state
 /app.physicar

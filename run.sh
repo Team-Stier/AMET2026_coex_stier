@@ -10,6 +10,7 @@ set +m
 
 WORKSPACE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROS_SETUP="${ROS_SETUP:-/opt/ros/jazzy/setup.bash}"
+PHYSICAR_ROS_ROOT="${PHYSICAR_ROS_ROOT:-/opt/physicar/src/physicar-ros}"
 BRINGUP_DELAY_SEC="${BRINGUP_DELAY_SEC:-0.5}"
 RUNTIME_KEY="$(printf '%s' "$WORKSPACE_ROOT" | cksum | awk '{print $1}')"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}/physicar-run-${UID}-${RUNTIME_KEY}"
@@ -155,6 +156,13 @@ elif [[ "${ROS_DISTRO:-}" != "jazzy" ]]; then
     echo "set ROS_SETUP to the Jazzy setup.bash path and try again" >&2
     exit 1
 fi
+
+# The official evaluation terminal starts with a clean environment. Match the
+# middleware used by the already-running PhysiCar stack so both sides discover
+# each other; explicit caller overrides remain authoritative.
+export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-LOCALHOST}"
+export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
+export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://${PHYSICAR_ROS_ROOT}/deploy/cyclonedds.xml}"
 
 ros2 daemon stop >/dev/null 2>&1 || true
 

@@ -1,0 +1,46 @@
+{
+  "format": "PhysiCar/DeepRacer waypoint RDDF (N, 6)",
+  "columns": [
+    "center_x_m",
+    "center_y_m",
+    "inner_x_m",
+    "inner_y_m",
+    "outer_x_m",
+    "outer_y_m"
+  ],
+  "point_count": 388,
+  "closed_by_duplicate_endpoint": true,
+  "source": {
+    "route_url": "http://localhost/sim/api/route",
+    "world_url": "http://localhost/sim/api/world",
+    "world": "custom_71e69ee938032295503bfed557fde18c",
+    "world_id": "71e69ee938032295503bfed557fde18c",
+    "rev": "msxw4l0xae4bc354",
+    "display": "AMET 2026",
+    "extracted_at_utc": "2026-08-25T01:04:45.719795+00:00"
+  },
+  "coordinates": {
+    "frame": "Gazebo world absolute coordinates",
+    "units": "metres",
+    "bounds_from_world_api": {
+      "minX": 0.0,
+      "maxX": 12.0,
+      "minY": 0.0,
+      "maxY": 7.0
+    },
+    "transform_applied": false
+  },
+  "variant": {
+    "version": "v05",
+    "name": "corner_cut_2p5x",
+    "corner_cut_scale": 2.5,
+    "derived_from": "rddf_real",
+    "files": {
+      "centerline": "centerline_real_v05_corner_cut_2p5x.csv",
+      "inner_boundary": "inner_boundary_real_v05_corner_cut_2p5x.csv",
+      "outer_boundary": "outer_boundary_real_v05_corner_cut_2p5x.csv",
+      "combined_csv": "rddf_real_v05_corner_cut_2p5x.csv",
+      "combined_npy": "rddf_real_v05_corner_cut_2p5x.npy"
+    }
+  }
+}

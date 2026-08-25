@@ -246,12 +246,14 @@ private:
 
   void run()
   {
+    std::int64_t last_planned_stamp = std::numeric_limits<std::int64_t>::min();
     while (!stopping_) {
       PlanningSnapshot snapshot = registry_.planning_snapshot();
-      if (!snapshot.pose) {
+      if (!snapshot.pose || snapshot.stamp_nanoseconds == last_planned_stamp) {
         std::this_thread::yield();
         continue;
       }
+      last_planned_stamp = snapshot.stamp_nanoseconds;
 
       const auto planning_started = std::chrono::steady_clock::now();
       PlanAttemptResult result;
@@ -266,7 +268,12 @@ private:
       }
       const double planning_elapsed_ms = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - planning_started).count();
-      RCLCPP_INFO(logger_, "planning completed in %.3f ms", planning_elapsed_ms);
+      const char * status = result.status == PlanStatus::kSuccess ? "success" :
+        (result.status == PlanStatus::kInvalidStart ? "invalid_start" : "failure");
+      RCLCPP_INFO(
+        logger_, "planning status=%s time_ms=%.3f expanded_nodes=%zu path_points=%zu",
+        status, planning_elapsed_ms, result.expanded_nodes,
+        result.path ? result.path->points.size() : 0U);
 
       if (result.status == PlanStatus::kSuccess && result.path) {
         try {
