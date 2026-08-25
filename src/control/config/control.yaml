@@ -19,6 +19,7 @@ control_node:
     # Pure Pursuit 횡방향 제어 설정이다.
     pure_pursuit.wheelbase_m: 0.18
     pure_pursuit.lookahead_distance_m: 0.45
+    # 실차 약 20도의 하드 조향 제한이다. 플래너 후보는 추종 보정 여유를 위해 이보다 작게 둔다.
     pure_pursuit.max_steering_rad: 0.3491
     pure_pursuit.closed_loop: false
 

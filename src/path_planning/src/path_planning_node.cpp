@@ -336,7 +336,8 @@ public:
       *track_, *collision_checker_, *cost_model_, wheelbase_m_, planning_horizon_m_,
       xy_resolution_m_, yaw_resolution_deg_ * kPi / 180.0, progress_resolution_m_,
       motion_primitive_length_m_, collision_check_step_m_,
-      std::move(steering_candidates_rad), goal_longitudinal_tolerance_m_,
+      vehicle_max_steering_deg_ * kPi / 180.0, std::move(steering_candidates_rad),
+      goal_longitudinal_tolerance_m_,
       goal_yaw_tolerance_deg_ * kPi / 180.0, progress_regression_tolerance_m_,
       max_progress_advance_ratio_, static_cast<std::size_t>(max_search_nodes_),
       publish_search_tree_debug_);
@@ -400,6 +401,7 @@ public:
     vehicle_width_m_ = required_parameter<double>("vehicle_width_m");
     vehicle_length_m_ = required_parameter<double>("vehicle_length_m");
     wheelbase_m_ = required_parameter<double>("wheelbase_m");
+    vehicle_max_steering_deg_ = required_parameter<double>("vehicle_max_steering_deg");
     wheel_track_m_ = required_parameter<double>("wheel_track_m");
     obstacle_inflation_radius_m_ =
       required_parameter<double>("obstacle_inflation_radius_m");
@@ -434,6 +436,7 @@ private:
     require_positive("vehicle_width_m", vehicle_width_m_);
     require_positive("vehicle_length_m", vehicle_length_m_);
     require_positive("wheelbase_m", wheelbase_m_);
+    require_positive("vehicle_max_steering_deg", vehicle_max_steering_deg_);
     require_positive("wheel_track_m", wheel_track_m_);
     require_positive("obstacle_inflation_radius_m", obstacle_inflation_radius_m_);
     require_positive("track_lookup_resolution_m", track_lookup_resolution_m_);
@@ -456,10 +459,17 @@ private:
     if (steering_candidates_deg_.empty()) {
       throw std::invalid_argument("steering_candidates_deg must not be empty");
     }
+    if (vehicle_max_steering_deg_ >= 90.0) {
+      throw std::invalid_argument("vehicle_max_steering_deg must be less than 90 degrees");
+    }
     for (const double steering_deg : steering_candidates_deg_) {
       if (!std::isfinite(steering_deg) || std::abs(steering_deg) >= 90.0) {
         throw std::invalid_argument(
                 "steering_candidates_deg values must be finite and between -90 and 90");
+      }
+      if (std::abs(steering_deg) > vehicle_max_steering_deg_) {
+        throw std::invalid_argument(
+                "steering_candidates_deg values must not exceed vehicle_max_steering_deg");
       }
     }
     if (max_search_nodes_ <= 0) {
@@ -591,6 +601,7 @@ private:
   double vehicle_width_m_{};
   double vehicle_length_m_{};
   double wheelbase_m_{};
+  double vehicle_max_steering_deg_{};
   double wheel_track_m_{};
   double obstacle_inflation_radius_m_{};
   double track_lookup_resolution_m_{};
