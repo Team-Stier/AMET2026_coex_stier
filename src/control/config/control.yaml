@@ -3,7 +3,34 @@ control_node:
     # 폐쇄 시험장/SIM 전용 한계 탐색
     target_speed_m_s: 2.0
     max_speed_m_s: 2.0
+    # 이 값 이하의 목표속도는 완전 정지 명령으로 처리한다.
+    stop_speed_threshold_m_s: 0.000001
+    # /camera/pan으로 계속 보낼 고정 팬 각도다. 단위는 rad이다.
+    camera_pan_command_rad: 0.0
+    # 보정 pose 또는 path가 이 시간 동안 갱신되지 않으면 watchdog이 정지한다.
+    pose_timeout_sec: 0.5
+    path_timeout_sec: 0.5
+    watchdog_period_sec: 0.1
+    # /pose/calibration 속도 분산의 허용 상한이다. 단위는 (m/s)^2이다.
+    # calibration이 stale twist에 넣는 1e6은 이 검사에서 거부된다.
+    maximum_speed_variance_m2_s2: 1.0
+    # 현재 /pose/calibration.pose.position 원점은 LiDAR보다 0.027 m 전방이다.
+    # calibration의 LiDAR extrinsic 또는 pose 원점 계약을 바꿀 때만 함께 갱신한다.
+    calibrated_pose.origin_x_from_lidar_m: -0.027
+
+    # Pure Pursuit 횡방향 제어 설정이다.
+    pure_pursuit.wheelbase_m: 0.18
     pure_pursuit.lookahead_distance_m: 0.70
+    # LiDAR 원점 기준 Pure Pursuit 추종 기준점의 종방향 위치다.
+    # 양수는 차량 전방, 0은 LiDAR 원점, 음수는 차량 후방이다.
+    # 현재 /pose/calibration 기준점이 LiDAR 전방 0.027 m라서 이 기본값은 기존 동작을 유지한다.
+    pure_pursuit.reference_point_x_from_lidar_m: -0.027
+    # 실차 약 20도의 하드 조향 제한이다. 플래너 후보는 추종 보정 여유를 위해 이보다 작게 둔다.
+    pure_pursuit.max_steering_rad: 0.3491
+    pure_pursuit.closed_loop: false
+
+    # 속도 기반 LD = clamp(lookahead_time * abs(speed), min, max)
+    # 0.55 m/s에서는 0.45 m, 1.5 m/s에서는 0.825 m가 된다.
     speed_lookahead.enabled: true
     speed_lookahead.lookahead_time_sec: 0.78
     speed_lookahead.min_lookahead_m: 0.70

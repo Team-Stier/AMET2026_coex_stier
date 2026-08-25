@@ -25,12 +25,17 @@ class VehicleState:
 
 @dataclass(frozen=True)
 class PurePursuitConfig:
-    """Pure Pursuit parameters in SI units."""
+    """Pure Pursuit parameters in SI units.
+
+    reference_point_offset_m is relative to the supplied VehicleState origin;
+    ROS adapters must convert any sensor-relative public parameter first.
+    """
 
     wheelbase_m: float
     lookahead_distance_m: float
     max_steering_rad: float
     closed_loop: bool = False
+    reference_point_offset_m: float = 0.0
 
     def __post_init__(self) -> None:
         if self.wheelbase_m <= 0.0:
@@ -39,6 +44,8 @@ class PurePursuitConfig:
             raise ValueError("lookahead_distance_m must be positive")
         if self.max_steering_rad <= 0.0:
             raise ValueError("max_steering_rad must be positive")
+        if not math.isfinite(self.reference_point_offset_m):
+            raise ValueError("reference_point_offset_m must be finite")
 
 
 @dataclass(frozen=True)
