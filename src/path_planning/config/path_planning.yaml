@@ -44,11 +44,8 @@ path_planning_node:
     max_progress_advance_ratio: 3.0
     # 한 번의 계획에서 저장할 탐색 노드 수의 상한이다. 도달하면 새 노드를 더 추가하지 않는다.
     max_search_nodes: 100000
-    # 현재는 양수 검증과 CostModel 저장만 하며, 비활성화된 시간 비용식 때문에 탐색 결과에는 영향이 없다.
-    max_speed_mps: 1.5
-    # 현재는 양수 검증과 CostModel 저장만 하며, 비활성화된 곡률별 속도 계산 때문에 탐색 결과에는 영향이 없다.
-    max_lateral_accel_mps2: 1.5
-    # 현재는 0 이상 검증과 저장만 하며, 곡률 비용항이 주석 처리되어 탐색 결과에는 영향이 없다.
-    w_curvature: 1.0
-    # 현재는 0 이상 검증과 저장만 하며, 곡률 변화 비용항이 주석 처리되어 탐색 결과에는 영향이 없다.
-    w_curvature_change: 0.2
+
+    # src/cost_functions 아래에서 Hybrid A* 탐색 비용으로 사용할 C++ 파일 이름이다.
+    # distance.cpp: 현재와 동일한 최단 거리 비용
+    # min_curvature.cpp: 이동 거리와 함께 곡률 및 급격한 곡률 변화를 최소화하는 비용
+    select_function: "min_curvature.cpp"

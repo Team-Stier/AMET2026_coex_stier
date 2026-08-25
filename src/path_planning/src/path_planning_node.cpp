@@ -326,8 +326,7 @@ public:
       *track_,
       VehicleFootprint(vehicle_length_m_, vehicle_width_m_, wheelbase_m_, wheel_track_m_),
       track_lookup_resolution_m_);
-    cost_model_ = std::make_unique<CostModel>(
-      max_speed_mps_, max_lateral_accel_mps2_, w_curvature_, w_curvature_change_);
+    cost_model_ = std::make_unique<CostModel>(select_cost_function(select_function_));
     std::vector<double> steering_candidates_rad;
     steering_candidates_rad.reserve(steering_candidates_deg_.size());
     for (const double steering_deg : steering_candidates_deg_) {
@@ -423,10 +422,7 @@ public:
     max_progress_advance_ratio_ =
       required_parameter<double>("max_progress_advance_ratio");
     max_search_nodes_ = required_parameter<std::int64_t>("max_search_nodes");
-    max_speed_mps_ = required_parameter<double>("max_speed_mps");
-    max_lateral_accel_mps2_ = required_parameter<double>("max_lateral_accel_mps2");
-    w_curvature_ = required_parameter<double>("w_curvature");
-    w_curvature_change_ = required_parameter<double>("w_curvature_change");
+    select_function_ = required_parameter<std::string>("select_function");
   }
 
 private:
@@ -453,10 +449,9 @@ private:
     require_nonnegative(
       "progress_regression_tolerance_m", progress_regression_tolerance_m_);
     require_positive("max_progress_advance_ratio", max_progress_advance_ratio_);
-    require_positive("max_speed_mps", max_speed_mps_);
-    require_positive("max_lateral_accel_mps2", max_lateral_accel_mps2_);
-    require_nonnegative("w_curvature", w_curvature_);
-    require_nonnegative("w_curvature_change", w_curvature_change_);
+    if (select_function_.empty()) {
+      throw std::invalid_argument("select_function must not be empty");
+    }
 
     if (steering_candidates_deg_.empty()) {
       throw std::invalid_argument("steering_candidates_deg must not be empty");
@@ -613,10 +608,7 @@ private:
   double progress_regression_tolerance_m_{};
   double max_progress_advance_ratio_{};
   std::int64_t max_search_nodes_{};
-  double max_speed_mps_{};
-  double max_lateral_accel_mps2_{};
-  double w_curvature_{};
-  double w_curvature_change_{};
+  std::string select_function_;
   std::unique_ptr<RddfTrack> track_;
   std::unique_ptr<CollisionChecker> collision_checker_;
   std::unique_ptr<CostModel> cost_model_;

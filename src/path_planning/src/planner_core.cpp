@@ -1052,29 +1052,13 @@ bool CollisionChecker::is_primitive_valid(
   return true;
 }
 
-CostModel::CostModel(
-  double max_speed_mps,
-  double max_lateral_accel_mps2,
-  double w_curvature,
-  double w_curvature_change)
-: max_speed_(max_speed_mps),
-  max_lateral_accel_(max_lateral_accel_mps2),
-  w_curvature_(w_curvature),
-  w_curvature_change_(w_curvature_change)
+CostModel::CostModel(const CostFunction & function)
+: transition_cost_function_(function.transition_cost),
+  heuristic_function_(function.heuristic)
 {
-  require_positive(max_speed_mps, "maximum speed");
-  require_positive(max_lateral_accel_mps2, "maximum lateral acceleration");
-  require_nonnegative(w_curvature, "curvature weight");
-  require_nonnegative(w_curvature_change, "curvature-change weight");
-}
-
-double CostModel::expected_speed(double curvature) const noexcept
-{
-  const double magnitude = std::abs(curvature);
-  if (magnitude <= kGeometryEpsilon) {
-    return max_speed_;
+  if (transition_cost_function_ == nullptr || heuristic_function_ == nullptr) {
+    throw std::invalid_argument("cost function callbacks must not be null");
   }
-  return std::min(max_speed_, std::sqrt(max_lateral_accel_ / magnitude));
 }
 
 double CostModel::transition_cost(
@@ -1087,19 +1071,12 @@ double CostModel::transition_cost(
   {
     return std::numeric_limits<double>::infinity();
   }
-  // const double travel_time = distance_m / expected_speed(curvature);
-  // const double curvature_integral = curvature * curvature * distance_m;
-  // const double curvature_change = curvature - previous_curvature;
-  // const double curvature_change_integral = curvature_change * curvature_change / distance_m;
-  // return travel_time + w_curvature_ * curvature_integral +
-  //        w_curvature_change_ * curvature_change_integral;
-  return distance_m;
+  return transition_cost_function_(distance_m, curvature, previous_curvature);
 }
 
 double CostModel::heuristic(double minimum_travel_distance_m) const noexcept
 {
-  // return std::max(0.0, minimum_travel_distance_m) / max_speed_;
-  return std::max(0.0, minimum_travel_distance_m);
+  return heuristic_function_(minimum_travel_distance_m);
 }
 
 HybridAStarPlanner::HybridAStarPlanner(

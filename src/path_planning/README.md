@@ -229,10 +229,8 @@ classDiagram
         +body_intersects(circle, pose) bool
     }
     class CostModel {
-        -float max_speed_mps
-        -float max_lateral_accel_mps2
-        -float w_curvature
-        -float w_curvature_change
+        -TransitionCostFunction transition_cost_function
+        -HeuristicCostFunction heuristic_function
         +transition_cost(distance, curvature, previous_curvature) double
         +heuristic(minimum_travel_distance) double
     }
@@ -420,26 +418,36 @@ degree이며 `[-30.0, -15.0, 0.0, 15.0, 30.0]`이면 정확히 다섯 각도만 
 있다. 한 랩 전체 계획 모드에서는 시작선 게이트를 같은 진행 방향으로 한 번 통과한
 상태가 목표다.
 
-## 8. 최단거리 비교 비용
+## 8. 선택 가능한 탐색 비용 함수
 
-현재 비교 실험의 탐색 우선순위는 다음 비용의 합으로 정한다.
+탐색 우선순위는 선택한 C++ 함수가 반환하는 비용의 합으로 정한다.
 
 ```text
-f(n) = g_distance(n) + h_distance(n)
+f(n) = g_selected(n) + h_selected(n)
 ```
 
-- `g_distance`는 이미 지나온 motion primitive 길이의 합이다.
+- `g`는 이미 지나온 motion primitive의 `transition_cost` 합이다.
 - `h_distance`는 목표 게이트 선분까지의 유클리드 거리와 남은 centerline progress에서
   `goal_longitudinal_tolerance_m`을 뺀 뒤 0 이상으로 제한한다. progress 쪽은 다시
   `max_progress_advance_ratio`로 나누며, 두 거리 중 큰 값이 낙관적 거리 하한이다.
 - 장애물은 별도 soft cost를 두지 않고, `obstacle_inflation_radius_m`과 차량 직사각형의
   hard collision으로만 거부한다.
 
-기존 예상 시간·곡률·곡률 변화 비용식과 시간 heuristic은 비교 후 되돌릴 수 있도록
-`CostModel` 구현에 주석으로 남겨 두었다. 이 실험 동안 `max_speed_mps`,
-`max_lateral_accel_mps2`, `w_curvature`, `w_curvature_change`는 로드와 검증은 하지만 활성
-비용에는 반영되지 않는다. 따라서 결과는 트랙·차량·장애물·운동학 조건을 만족하는 탐색
-격자상의 최단거리 경로이며, 아웃-인-아웃이나 최소 랩타임을 직접 선호하지 않는다.
+`select_function`은 `src/cost_functions` 아래의 컴파일된 C++ 파일 이름을 선택한다.
+`distance.cpp`는 기존과 동일하게 이동 거리만 반환한다. `min_curvature.cpp`는 다음 식으로
+곡률 제곱 적분, 최대 곡률을 강하게 억제하는 4제곱 적분, primitive 사이의 곡률 변화율을
+함께 벌점으로 주어 더 완만하고 부드러운 경로를 선호한다.
+
+```text
+transition_cost = distance
+                + 0.10 * curvature^2 * distance
+                + 0.0025 * curvature^4 * distance
+                + 0.01 * (curvature - previous_curvature)^2 / distance
+```
+
+새 비용 함수는 같은 디렉터리에 별도 `.cpp`로 작성하고 `select.cpp`와 `CMakeLists.txt`에
+등록한다. 탐색 중에는 선택된 C++ 함수 포인터를 직접 호출하므로 별도 프로세스나 스크립트
+실행 비용이 없다.
 
 ## 9. 트랙과 충돌 판정
 
@@ -478,9 +486,7 @@ swept-volume 계산이나 표본 사이 자동 안전 padding은 두지 않는�
 
 `src/path_planning/config/path_planning.yaml`을 Path Planning의 모든 튜닝 가능한
 파라미터에 대한 단일 기준으로 사용한다. 차량 제원, 장애물 팽창 반지름, 해상도,
-명시 조향각 후보 목록과 탐색 상한을 모두 이 파일에서 조정한다. 예상 속도
-제한값과 곡률 비용 가중치는 기존 비용식 복원 시 사용할 값으로 유지하며 다른 소스 파일에
-중복 하드코딩하지 않는다.
+명시 조향각 후보 목록, 탐색 상한과 비용 함수 선택을 모두 이 파일에서 조정한다.
 
 노드 시작 과정은 다음과 같다.
 
@@ -527,16 +533,13 @@ path_planning_node:
     progress_regression_tolerance_m: 0.05
     max_progress_advance_ratio: 3.0
     max_search_nodes: 100000
-    max_speed_mps: 1.5
-    max_lateral_accel_mps2: 1.5
-    w_curvature: 1.0
-    w_curvature_change: 0.2
+    select_function: "distance.cpp"
 ```
 
 위 YAML의 숫자는 초기 튜닝값이며 트랙 실측과 주행 기록으로 확정한다. 별도의 Config
 객체는 만들지 않는다. 설정 스키마 검증은 `PathPlanningNode`에서 한 번 수행하고, 모든
-동작 객체는 검증된 값만 전달받는다. 코드 변경 없이 YAML 변경과 노드 재시작만으로
-튜닝값이 반영되어야 한다.
+동작 객체는 검증된 값만 전달받는다. 이미 컴파일된 비용 함수 사이의 전환은 YAML 변경과
+노드 재시작만으로 반영된다.
 
 ## 11. 실패 처리
 

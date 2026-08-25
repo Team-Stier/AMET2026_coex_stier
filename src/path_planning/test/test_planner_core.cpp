@@ -131,7 +131,7 @@ TEST(CollisionCheckerTest, RequiresOneWheelOnTrackAndRejectsRectangleCircleColli
 
 TEST(CostModelTest, UsesTravelDistanceOnly)
 {
-  const CostModel cost(1.5, 1.5, 1.0, 0.2);
+  const CostModel cost(select_cost_function("distance.cpp"));
   const double straight = cost.transition_cost(0.10, 0.0, 0.0);
   const double curved = cost.transition_cost(0.10, 1.0, 0.0);
   const double smooth_curve = cost.transition_cost(0.10, 1.0, 1.0);
@@ -142,12 +142,27 @@ TEST(CostModelTest, UsesTravelDistanceOnly)
   EXPECT_NEAR(cost.heuristic(3.0), 3.0, 1.0e-9);
 }
 
+TEST(CostModelTest, PenalizesCurvatureAndCurvatureChange)
+{
+  const CostModel cost(select_cost_function("min_curvature.cpp"));
+  const double straight = cost.transition_cost(0.10, 0.0, 0.0);
+  const double smooth_curve = cost.transition_cost(0.10, 1.0, 1.0);
+  const double changing_curve = cost.transition_cost(0.10, 1.0, 0.0);
+  const double sharp_curve = cost.transition_cost(0.10, 4.0, 4.0);
+
+  EXPECT_GT(smooth_curve, straight);
+  EXPECT_GT(changing_curve, smooth_curve);
+  EXPECT_GT(sharp_curve, changing_curve);
+  EXPECT_NEAR(cost.heuristic(3.0), 3.0, 1.0e-9);
+  EXPECT_THROW(select_cost_function("unknown.cpp"), std::invalid_argument);
+}
+
 TEST(HybridAStarPlannerTest, ValidatesSteeringCandidates)
 {
   const RddfTrack track = square_track();
   const CollisionChecker checker(
     track, VehicleFootprint(0.28, 0.20, 0.18, 0.20), 0.05);
-  const CostModel cost(1.5, 1.5, 1.0, 0.2);
+  const CostModel cost(select_cost_function("distance.cpp"));
   const auto make_planner = [&](std::vector<double> candidates) {
       return HybridAStarPlanner(
         track, checker, cost,
@@ -169,7 +184,7 @@ TEST(HybridAStarPlannerTest, PlansForwardAndPreservesFrameAndTreeYaw)
   const RddfTrack track = square_track();
   const CollisionChecker checker(
     track, VehicleFootprint(0.28, 0.20, 0.18, 0.20), 0.05);
-  const CostModel cost(1.5, 1.5, 1.0, 0.2);
+  const CostModel cost(select_cost_function("distance.cpp"));
   const HybridAStarPlanner planner(
     track, checker, cost,
     0.18, 1.0,
@@ -206,7 +221,7 @@ TEST(HybridAStarPlannerTest, AvoidsObstacleAndSkipsTreeWhenDebugIsDisabled)
   const RddfTrack track = square_track();
   const CollisionChecker checker(
     track, VehicleFootprint(0.28, 0.20, 0.18, 0.20), 0.05);
-  const CostModel cost(1.5, 1.5, 1.0, 0.2);
+  const CostModel cost(select_cost_function("distance.cpp"));
   const HybridAStarPlanner planner(
     track, checker, cost,
     0.18, 2.0,
@@ -239,7 +254,7 @@ TEST(HybridAStarPlannerTest, FailedPlanDoesNotProduceDebugTree)
   const RddfTrack track = square_track();
   const CollisionChecker checker(
     track, VehicleFootprint(0.28, 0.20, 0.18, 0.20), 0.05);
-  const CostModel cost(1.5, 1.5, 1.0, 0.2);
+  const CostModel cost(select_cost_function("distance.cpp"));
   const HybridAStarPlanner planner(
     track, checker, cost,
     0.18, 2.0,
