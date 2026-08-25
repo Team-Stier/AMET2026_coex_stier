@@ -25,8 +25,8 @@ RDDF와 차량 pose는 전역 `map` 좌표를 사용한다. 기본 입력 `/pose
 `/odom/laser`의 위치와 orientation을 Z축 시계방향 `90°` 회전한 뒤 RDDF 첫 centerline
 점을 더해 SIM GT와 정렬한 `map` frame
 `nav_msgs/Odometry`다. Path Planning Node는 이 좌표를 다시 정합하거나 변환하지 않고
-Registry에 그대로 저장한다. `pose_topic: "/pose/calibration"`으로 선택하는
-보정 pose도 같은 `map` frame 계약을 따라야 한다.
+Registry에 그대로 저장한다. `use_calibride_odom: true`에서 선택하는
+`/odom/calibride`도 같은 `map` frame 계약을 따라야 한다.
 
 - 선택된 pose는 `lidar_link` 원점의 `(x_map, y_map, yaw_map)`를 나타낸다.
 - `/object_info`의 중심점은 `lidar_link` 로컬 좌표다. `+x`는 전방, `+y`는 좌측이다.
@@ -42,7 +42,8 @@ Registry에 그대로 저장한다. `pose_topic: "/pose/calibration"`으로 선�
 | 구분 | 이름 | 형식 | 계약 |
 |---|---|---|---|
 | 정적 입력 | `rddf_file` | CSV 경로 | `center_x_m,center_y_m,inner_x_m,inner_y_m,outer_x_m,outer_y_m` 열을 가진 폐곡선 |
-| 동적 입력 | `pose_topic` | `nav_msgs/Odometry` | `/pose` 또는 `/pose/calibration` 중 설정으로 선택한 `map` frame 차량 pose와 속도 |
+| 동적 입력 | `/pose` | `nav_msgs/Odometry` | `use_calibride_odom: false`일 때만 구독하는 `map` frame 차량 pose와 속도 |
+| 동적 입력 | `/odom/calibride` | `nav_msgs/Odometry` | `use_calibride_odom: true`일 때만 구독하는 차량 pose와 속도 |
 | 동적 입력 | `/object_info` | `interfaces/Objects` | 뒤 차축 중심 기준 차량 로컬 좌표의 장애물 중심점 |
 | 출력 | `/path` | `nav_msgs/Path` | `map` 좌표의 전방 로컬 구간, pose 방향 포함 |
 | 디버그 출력 | `/path_planning/debug/search_tree` | `interfaces/SearchTree` | `map` 좌표인 직전 성공 Hybrid A* 탐색의 노드 위치·yaw와 parent index |
@@ -54,9 +55,9 @@ Registry에 그대로 저장한다. `pose_topic: "/pose/calibration"`으로 선�
 차량 크기는 별도의 차량 직사각형 충돌 검사에서 한 번만 반영한다. 좌표가 유효하지 않은
 관측은 사용하지 않고 진단 로그를 남긴다.
 
-노드는 시작할 때 `pose_topic`을 한 번 읽고 선택된 odometry 토픽 하나에만
-subscription을 만든다. 값은 `/pose` 또는 `/pose/calibration`이어야 하며 다른 토픽으로
-fallback하지 않는다.
+노드는 시작할 때 `use_calibride_odom`을 한 번 읽고 선택된 odometry 토픽 하나에만
+subscription을 만든다. `true`이면 `/odom/calibride`만 사용하고 `/pose`는 구독하거나
+fallback으로 사용하지 않는다. `false`이면 `/pose`만 사용한다.
 
 ## 4. 실행 전략과 연속 계획
 
@@ -97,6 +98,13 @@ Hybrid A*가 경로를 찾지 못하면 경로 및 Registry에 대해서는 아�
 같은 경로를 유지하고, 매 odometry 콜백에서 계속 전방 구간을 잘라 발행한다.
 
 계획 워커의 다음 반복에서는 최신 pose와 장애물로 다시 계획한다.
+
+물리 조향 한계를 적용하면 90° 급코너 바로 앞에 차량을 직선 자세로 강제 배치한 경우처럼,
+남은 거리 안에 가능한 전진 원호가 없는 pose에서는 계획 실패가 정상이다. 이때 후보 각도를
+물리 한계보다 키우지 않는다. 수동 배치나 pose 초기화는 코너 진입 전에 수행하거나 진행
+방향에 맞는 yaw를 사용한다. 성공 경로가 아직 없으면 빈 `/path`로 제어기가 정지하지만,
+기존 경로는 계획 실패만으로 무효화되지 않으므로 수동 재배치는 주행을 정지하고 노드를
+재시작한 뒤 수행한다.
 
 로컬 경로 발행 주기는 선택된 odometry 수신 주기이며, 목표인 30~50 Hz를 내려면
 odometry도 같은 수준으로 들어와야 한다. 탐색은 벽시계 시간으로 중단하지 않으며,
@@ -170,8 +178,9 @@ classDiagram
     }
     class PathPlanningNode {
         <<rclcpp::Node>>
-        -string pose_topic
+        -bool use_calibride_odom
         -bool publish_search_tree_debug
+        -double vehicle_max_steering_deg
         -vector~double~ steering_candidates_deg
         -Publisher search_tree_publisher
         -PlanningRegistry registry
@@ -354,7 +363,7 @@ sequenceDiagram
     participant CTRL as ControlNode
 
     loop 선택된 odometry 메시지마다
-        LOC->>N: pose_topic으로 선택된 /pose 또는 /pose/calibration
+        LOC->>N: /pose 또는 /odom/calibride 중 선택된 하나
         N->>N: map frame pose 검증
         N->>REG: update_pose(map pose)
         N->>LP: slice(map pose)
@@ -402,12 +411,16 @@ primitive에서 `motion_primitive_length_m * max_progress_advance_ratio`보다 �
 검사에 사용한 중간 pose 전체를 경로에 보관하지 않고 primitive 끝점만 저장·발행하여
 메모리와 메시지 크기를 줄인다.
 
-`steering_candidates_deg`는 각 상태에서 사용할 전진 조향각의 명시적 목록이다. 단위는
-degree이며 `[-30.0, -15.0, 0.0, 15.0, 30.0]`이면 정확히 다섯 각도만 사용한다. 배열의
-개수·간격·대칭 여부를 코드가 추측하거나 자동 생성하지 않는다. 빈 배열과 유한하지 않은 값,
-`-90°` 이하 또는 `90°` 이상의 값은 시작 시 거부한다. 생성자는 각 항목을 곡률
-`tan(steering) / wheelbase_m`로 한 번 변환하며, Hybrid A*는 상태를 OPEN에서 꺼낼 때
-모든 곡률의 primitive를 한 번씩 검사한다.
+`vehicle_max_steering_deg`는 실차 앞바퀴의 물리 조향 한계이며 기본값은 `20°`다.
+`steering_candidates_deg`는 각 상태에서 사용할 전진 조향각의 명시적 목록이다. 기본 후보
+`[-18.0, -9.0, 0.0, 9.0, 18.0]`는 제어기가 경로 추종 오차를 보정할 수 있도록 물리
+한계보다 `2°` 작은 범위를 사용한다. 휠베이스 `0.18 m`에서 `18°` 후보의 최소 회전반경은
+약 `0.554 m`다.
+
+배열의 개수·간격·대칭 여부를 코드가 추측하거나 자동 생성하지 않는다. 빈 배열, 유한하지
+않은 값, `-90°` 이하 또는 `90°` 이상의 값과 `vehicle_max_steering_deg`를 초과하는 후보는
+노드 시작 시 거부한다. 생성자는 각 항목을 곡률 `tan(steering) / wheelbase_m`로 한 번
+변환하며, Hybrid A*는 상태를 OPEN에서 꺼낼 때 모든 곡률의 primitive를 한 번씩 검사한다.
 
 `planning_horizon_m`은 centerline을 따라 현재 progress보다 앞선 기준점을 고르는
 거리다. 기준점 하나에 정확히 수렴시키지는 않는다. 해당 기준점에서 centerline의 법선
@@ -484,8 +497,8 @@ swept-volume 계산이나 표본 사이 자동 안전 padding은 두지 않는�
 ## 10. 설정 파일과 튜닝값 관리 원칙
 
 `src/path_planning/config/path_planning.yaml`을 Path Planning의 모든 튜닝 가능한
-파라미터에 대한 단일 기준으로 사용한다. 차량 제원, 장애물 팽창 반지름, 해상도,
-명시 조향각 후보 목록, 탐색 상한과 비용 함수 선택을 모두 이 파일에서 조정한다.
+파라미터에 대한 단일 기준으로 사용한다. 차량 제원과 물리 조향 한계, 장애물 팽창 반지름,
+해상도, 명시 조향각 후보 목록, 탐색 상한과 비용 함수 선택을 모두 이 파일에서 조정한다.
 
 노드 시작 과정은 다음과 같다.
 
@@ -511,10 +524,11 @@ YAML을 `--params-file`로 전달한다.
 path_planning_node:
   ros__parameters:
     rddf_file: "rddf/rddf.csv"
-    pose_topic: "/pose"
+    use_calibride_odom: false
     vehicle_width_m: 0.20
     vehicle_length_m: 0.28
     wheelbase_m: 0.18
+    vehicle_max_steering_deg: 20.0
     wheel_track_m: 0.05
     obstacle_inflation_radius_m: 0.15
     track_lookup_resolution_m: 0.05
@@ -525,7 +539,7 @@ path_planning_node:
     yaw_resolution_deg: 10.0
     collision_check_step_m: 0.025
     motion_primitive_length_m: 0.25
-    steering_candidates_deg: [-30.0, -15.0, 0.0, 15.0, 30.0]
+    steering_candidates_deg: [-18.0, -9.0, 0.0, 9.0, 18.0]
     progress_resolution_m: 0.20
     goal_longitudinal_tolerance_m: 0.15
     goal_yaw_tolerance_deg: 20.0
@@ -560,7 +574,7 @@ path_planning_node:
    완료된 각 계획의 실행 시간을 밀리초 단위 INFO 로그로 남긴다.
 4. 장애물 중심점은 최신 선택 odometry pose로 전역 변환한 뒤 양자화 없이 Registry의
    장애물 목록을 교체한다. 이 입력 갱신은 Registry의 기존 경로를 바꾸지 않는다.
-5. 선택된 `/pose` 또는 `/pose/calibration`은 `map` frame이어야 하며 Registry pose,
+5. 선택된 `/pose` 또는 `/odom/calibride`는 `map` frame이어야 하며 Registry pose,
    장애물, `/path`, SearchTree의 frame도 모두 `map`이다.
 6. 같은 길이의 primitive는 곡률과 곡률 변화에 관계없이 같은 비용이다.
 7. 더 짧은 경로에서 누적 거리 비용이 감소한다.
@@ -574,8 +588,8 @@ path_planning_node:
     `publish_search_tree_debug: false`이면 배열을 발행하지 않는다.
 11. Hybrid A* 실패 전후로 Registry의 기존 경로 참조가 바뀌지 않는다.
 12. `steering_candidates_deg`에 적힌 모든 후보를 각 상태에서 빠짐없이 확장한다. 빈 배열,
-    NaN/Inf, `-90°` 이하 또는 `90°` 이상의 값은 노드 시작 시 거부하며 후보 수·간격·대칭은
-    강제하지 않는다.
+    NaN/Inf, `-90°` 이하 또는 `90°` 이상의 값과 `vehicle_max_steering_deg`를 초과하는 후보는
+    노드 시작 시 거부하며 후보 수·간격·대칭은 강제하지 않는다.
 
 ## 13. 구현 순서
 

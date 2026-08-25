@@ -29,9 +29,14 @@ std::vector<double> steering_candidates()
 {
   const double radians_per_degree = std::acos(-1.0) / 180.0;
   return {
-    -30.0 * radians_per_degree, -15.0 * radians_per_degree, 0.0,
-    15.0 * radians_per_degree, 30.0 * radians_per_degree,
+    -18.0 * radians_per_degree, -9.0 * radians_per_degree, 0.0,
+    9.0 * radians_per_degree, 18.0 * radians_per_degree,
   };
+}
+
+double vehicle_max_steering()
+{
+  return 20.0 * std::acos(-1.0) / 180.0;
 }
 
 TEST(CoordinateTransformTest, AlignsLocalOdometryOriginAndHeadingToMap)
@@ -163,20 +168,36 @@ TEST(HybridAStarPlannerTest, ValidatesSteeringCandidates)
   const CollisionChecker checker(
     track, VehicleFootprint(0.28, 0.20, 0.18, 0.20), 0.05);
   const CostModel cost(select_cost_function("distance.cpp"));
-  const auto make_planner = [&](std::vector<double> candidates) {
+  const auto make_planner = [&](
+    double maximum_steering, std::vector<double> candidates)
+    {
       return HybridAStarPlanner(
         track, checker, cost,
         0.18, 1.0,
         0.05, 5.0 * std::acos(-1.0) / 180.0, 0.05,
-        0.10, 0.025, candidates,
+        0.10, 0.025, maximum_steering, candidates,
         0.11, 15.0 * std::acos(-1.0) / 180.0, 0.05, 3.0, 10000, false);
     };
 
-  EXPECT_NO_THROW(make_planner({0.0}));
-  EXPECT_THROW(make_planner({}), std::invalid_argument);
+  const double maximum_steering = vehicle_max_steering();
+  const double radians_per_degree = std::acos(-1.0) / 180.0;
+  EXPECT_NO_THROW(make_planner(
+      maximum_steering, {-maximum_steering, 0.0, maximum_steering}));
+  EXPECT_THROW(make_planner(maximum_steering, {}), std::invalid_argument);
   EXPECT_THROW(
-    make_planner({std::numeric_limits<double>::quiet_NaN()}), std::invalid_argument);
-  EXPECT_THROW(make_planner({0.5 * std::acos(-1.0)}), std::invalid_argument);
+    make_planner(maximum_steering, {std::numeric_limits<double>::quiet_NaN()}),
+    std::invalid_argument);
+  EXPECT_THROW(
+    make_planner(maximum_steering, {0.5 * std::acos(-1.0)}), std::invalid_argument);
+  EXPECT_THROW(
+    make_planner(maximum_steering, {20.1 * radians_per_degree}),
+    std::invalid_argument);
+  EXPECT_THROW(make_planner(0.0, {0.0}), std::invalid_argument);
+  EXPECT_THROW(
+    make_planner(std::numeric_limits<double>::quiet_NaN(), {0.0}),
+    std::invalid_argument);
+  EXPECT_THROW(
+    make_planner(0.5 * std::acos(-1.0), {0.0}), std::invalid_argument);
 }
 
 TEST(HybridAStarPlannerTest, PlansForwardAndPreservesFrameAndTreeYaw)
@@ -189,7 +210,7 @@ TEST(HybridAStarPlannerTest, PlansForwardAndPreservesFrameAndTreeYaw)
     track, checker, cost,
     0.18, 1.0,
     0.05, 5.0 * std::acos(-1.0) / 180.0, 0.05,
-    0.10, 0.025, steering_candidates(),
+    0.10, 0.025, vehicle_max_steering(), steering_candidates(),
     0.11, 15.0 * std::acos(-1.0) / 180.0, 0.05, 3.0, 10000, true);
   PlanningSnapshot snapshot;
   snapshot.pose = {-2.0, -2.0, 0.0};
@@ -216,6 +237,49 @@ TEST(HybridAStarPlannerTest, PlansForwardAndPreservesFrameAndTreeYaw)
   }
 }
 
+TEST(HybridAStarPlannerTest, PlansRepositoryTrackSharpCornersWithProductionSteeringLimit)
+{
+  const std::filesystem::path repository = std::filesystem::path(__FILE__)
+    .parent_path().parent_path().parent_path().parent_path();
+  const RddfTrack track =
+    RddfTrack::from_csv((repository / "rddf/rddf_real.csv").string());
+  const CollisionChecker checker(
+    track, VehicleFootprint(0.28, 0.20, 0.18, 0.05), 0.05);
+  const CostModel cost(select_cost_function("distance.cpp"));
+  const double radians_per_degree = std::acos(-1.0) / 180.0;
+  const HybridAStarPlanner planner(
+    track, checker, cost,
+    0.18, 5.0,
+    0.10, 10.0 * radians_per_degree, 0.20,
+    0.25, 0.025, vehicle_max_steering(), steering_candidates(),
+    0.15, 20.0 * radians_per_degree, 0.05, 3.0, 100000, false);
+
+  const std::vector<std::size_t> start_indices{0U, 118U, 223U};
+  const double maximum_candidate_curvature =
+    std::tan(18.0 * radians_per_degree) / 0.18;
+  for (const std::size_t start_index : start_indices) {
+    SCOPED_TRACE(start_index);
+    ASSERT_LT(start_index + 1U, track.centerline().size());
+    const Point2D & start = track.centerline()[start_index];
+    const Point2D & next = track.centerline()[start_index + 1U];
+    const double start_progress = track.progress(start);
+    PlanningSnapshot snapshot;
+    snapshot.pose = Pose2D{
+      start.x, start.y, std::atan2(next.y - start.y, next.x - start.x)};
+    snapshot.frame_id = "map";
+
+    const PlanAttemptResult result = planner.plan(snapshot);
+
+    ASSERT_EQ(result.status, PlanStatus::kSuccess);
+    ASSERT_TRUE(result.path.has_value());
+    EXPECT_GE(result.path->points.back().progress, start_progress + 4.85);
+    EXPECT_LT(result.expanded_nodes, 100000U);
+    for (const PathPoint & point : result.path->points) {
+      EXPECT_LE(std::abs(point.curvature), maximum_candidate_curvature + 1.0e-12);
+    }
+  }
+}
+
 TEST(HybridAStarPlannerTest, AvoidsObstacleAndSkipsTreeWhenDebugIsDisabled)
 {
   const RddfTrack track = square_track();
@@ -226,7 +290,7 @@ TEST(HybridAStarPlannerTest, AvoidsObstacleAndSkipsTreeWhenDebugIsDisabled)
     track, checker, cost,
     0.18, 2.0,
     0.05, 5.0 * std::acos(-1.0) / 180.0, 0.05,
-    0.10, 0.025, steering_candidates(),
+    0.10, 0.025, vehicle_max_steering(), steering_candidates(),
     0.11, 20.0 * std::acos(-1.0) / 180.0, 0.05, 3.0, 50000, false);
   const std::vector<Circle> obstacles{{-1.20, -2.0, 0.15}};
 
@@ -259,7 +323,7 @@ TEST(HybridAStarPlannerTest, FailedPlanDoesNotProduceDebugTree)
     track, checker, cost,
     0.18, 2.0,
     0.05, 5.0 * std::acos(-1.0) / 180.0, 0.05,
-    0.10, 0.025, steering_candidates(),
+    0.10, 0.025, vehicle_max_steering(), steering_candidates(),
     0.11, 15.0 * std::acos(-1.0) / 180.0, 0.05, 3.0, 10000, true);
 
   const PlanAttemptResult missing_pose_result = planner.plan(PlanningSnapshot{});
