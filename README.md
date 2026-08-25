@@ -245,7 +245,8 @@ RViz의 fixed frame은 `map`이다. `/scan`은 복제하거나 좌표를 변환�
 직접 구독하며, `map → lidar_link` TF를 통해 초록색으로 표시한다.
 
 - **`/speed`** (`std_msgs/Float64`): 차량의 목표 속도 명령. 단위는 m/s이다.
-- **`/steering`** (`std_msgs/Float64`): 차량의 목표 조향각 명령. 단위는 rad이며 양수는 좌회전을 의미한다.
+- **`/steering`** (`std_msgs/Float64`): 차량의 목표 조향각 명령. 단위는 rad이며 양수는 좌회전,
+  하드 제한은 약 `±0.35 rad`(`±20°`)다.
 - **`/camera/pan`** (`std_msgs/Float64`): 카메라의 목표 팬 각도 명령. 단위는 rad이며 양수는 왼쪽 회전을 의미한다. 실제 서보 위치 피드백이 아니라 명령값이다.
 
 #### 기본 토픽 발행 주기

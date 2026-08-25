@@ -123,6 +123,30 @@ def test_recovers_pose_from_two_perpendicular_walls():
     assert result.rms_error_m < 0.08
 
 
+def test_shifted_yaw_seed_recovers_fit_outside_original_optimizer_basin():
+    truth = (9.7, 5.1, 0.20)
+    horizontal = np.linspace(0.1, 11.9, 120)
+    vertical = np.linspace(0.1, 6.9, 70)
+    adjacent_walls = np.vstack(
+        (
+            np.column_stack((horizontal, np.full_like(horizontal, 7.0))),
+            np.column_stack((np.full_like(vertical, 12.0), vertical)),
+        )
+    )
+    fitter = RectangleWallFitter(
+        (0.0, 12.0, 0.0, 7.0),
+        minimum_walls=2,
+        maximum_yaw_step_rad=0.15,
+    )
+    points = in_lidar_frame(adjacent_walls, truth)
+
+    assert fitter.fit(points, (9.7, 5.1, 0.0)) is None
+    shifted_result = fitter.fit(points, truth)
+
+    assert shifted_result is not None
+    assert shifted_result.pose == pytest.approx(truth, abs=1.0e-8)
+
+
 def test_rejects_two_parallel_walls():
     horizontal = np.linspace(0.1, 11.9, 120)
     parallel_walls = np.vstack(

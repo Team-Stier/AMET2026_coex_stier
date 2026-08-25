@@ -18,9 +18,8 @@ from tf2_ros import TransformBroadcaster
 MAP_FRAME = "map"
 LIDAR_FRAME = "lidar_link"
 RAW_ODOMETRY_TOPIC = "/odom/laser"
-RAW_POSE_TOPIC = "/pose"
 CALIBRATED_POSE_TOPIC = "/pose/calibration"
-TF_SOURCES = (RAW_POSE_TOPIC, CALIBRATED_POSE_TOPIC)
+TF_SOURCES = (RAW_ODOMETRY_TOPIC, CALIBRATED_POSE_TOPIC)
 DEFAULT_LIDAR_OFFSET_X_M = -0.027
 HALF_SQRT_TWO = math.sqrt(0.5)
 
@@ -103,7 +102,7 @@ def convert_odometry(
 class PoseTfNode(Node):
     def __init__(self) -> None:
         super().__init__("pose_tf_node")
-        self.declare_parameter("tf_source", RAW_POSE_TOPIC)
+        self.declare_parameter("tf_source", RAW_ODOMETRY_TOPIC)
         self._tf_source = validate_tf_source(
             self.get_parameter("tf_source").value
         )
@@ -118,7 +117,7 @@ class PoseTfNode(Node):
         )
         self._origin = load_origin(centerline)
         self._publisher = self.create_publisher(
-            Odometry, RAW_POSE_TOPIC, qos_profile_sensor_data
+            Odometry, "/pose", qos_profile_sensor_data
         )
         self._broadcaster = TransformBroadcaster(self)
         self._raw_subscription = self.create_subscription(
@@ -143,7 +142,7 @@ class PoseTfNode(Node):
     def _on_odometry(self, message: Odometry) -> None:
         converted, transform = convert_odometry(message, self._origin)
         self._publisher.publish(converted)
-        if self._tf_source == RAW_POSE_TOPIC:
+        if self._tf_source == RAW_ODOMETRY_TOPIC:
             self._broadcaster.sendTransform(transform)
 
     def _on_calibrated_odometry(self, message: Odometry) -> None:

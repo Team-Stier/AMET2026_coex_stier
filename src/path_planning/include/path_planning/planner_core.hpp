@@ -243,6 +243,7 @@ public:
     double progress_resolution_m,
     double primitive_length_m,
     double collision_check_step_m,
+    double vehicle_max_steering_rad,
     std::vector<double> steering_candidates_rad,
     double goal_longitudinal_tolerance_m,
     double goal_yaw_tolerance_rad,

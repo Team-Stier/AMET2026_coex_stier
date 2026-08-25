@@ -1090,6 +1090,7 @@ HybridAStarPlanner::HybridAStarPlanner(
   double progress_resolution_m,
   double primitive_length_m,
   double collision_check_step_m,
+  double vehicle_max_steering_rad,
   std::vector<double> steering_candidates_rad,
   double goal_longitudinal_tolerance_m,
   double goal_yaw_tolerance_rad,
@@ -1121,6 +1122,7 @@ HybridAStarPlanner::HybridAStarPlanner(
   require_positive(progress_resolution_m, "progress resolution");
   require_positive(primitive_length_m, "primitive length");
   require_positive(collision_check_step_m, "collision-check step");
+  require_positive(vehicle_max_steering_rad, "vehicle maximum steering");
   require_positive(goal_longitudinal_tolerance_m, "goal longitudinal tolerance");
   require_positive(goal_yaw_tolerance_rad, "goal yaw tolerance");
   require_nonnegative(progress_regression_tolerance_m, "progress regression tolerance");
@@ -1133,6 +1135,9 @@ HybridAStarPlanner::HybridAStarPlanner(
   if (yaw_resolution_rad > 2.0 * kPi || goal_yaw_tolerance_rad > kPi) {
     throw std::invalid_argument("yaw resolution/tolerance is outside its valid range");
   }
+  if (vehicle_max_steering_rad >= 0.5 * kPi) {
+    throw std::invalid_argument("vehicle maximum steering must be less than pi/2");
+  }
   if (steering_candidates_rad.empty()) {
     throw std::invalid_argument("steering candidate list must not be empty");
   }
@@ -1141,6 +1146,10 @@ HybridAStarPlanner::HybridAStarPlanner(
     if (!finite(steering) || std::abs(steering) >= 0.5 * kPi) {
       throw std::invalid_argument(
               "steering candidates must be finite and strictly between -pi/2 and pi/2");
+    }
+    if (std::abs(steering) > vehicle_max_steering_rad) {
+      throw std::invalid_argument(
+              "steering candidates must not exceed the vehicle maximum steering angle");
     }
     curvatures_.push_back(std::tan(steering) / wheelbase_);
   }

@@ -20,6 +20,7 @@ models before calling the controller.
 - speed lookahead: `clamp(0.55 × |speed|, 0.45, 1.50)` m
 - lookahead at 0.55 m/s: 0.45 m
 - lookahead at 1.5 m/s: 0.825 m
+- steering hard limit: 0.3491 rad (approximately 20°)
 - curvature-adaptive lookahead bounds: 0.25–1.50 m
 - preview distance: 1.0 m
 - curvature reference: 2.0 1/m

@@ -359,7 +359,8 @@ public:
       *track_, *collision_checker_, *cost_model_, wheelbase_m_, planning_horizon_m_,
       xy_resolution_m_, yaw_resolution_deg_ * kPi / 180.0, progress_resolution_m_,
       motion_primitive_length_m_, collision_check_step_m_,
-      std::move(steering_candidates_rad), goal_longitudinal_tolerance_m_,
+      vehicle_max_steering_deg_ * kPi / 180.0, std::move(steering_candidates_rad),
+      goal_longitudinal_tolerance_m_,
       goal_yaw_tolerance_deg_ * kPi / 180.0, progress_regression_tolerance_m_,
       max_progress_advance_ratio_, static_cast<std::size_t>(max_search_nodes_),
       publish_search_tree_debug_);
@@ -380,8 +381,10 @@ public:
       "/object_info", rclcpp::QoS(10),
       std::bind(&PathPlanningNode::on_object_info, this, std::placeholders::_1));
 
+    const std::string selected_pose_topic =
+      use_calibride_odom_ ? "/pose/calibration" : "/pose";
     odometry_subscription_ = create_subscription<nav_msgs::msg::Odometry>(
-      pose_topic_, rclcpp::SensorDataQoS(),
+      selected_pose_topic, rclcpp::SensorDataQoS(),
       std::bind(&PathPlanningNode::on_selected_odometry, this, std::placeholders::_1));
 
     PlanningWorker::AttemptCallback attempt_callback;
@@ -398,7 +401,8 @@ public:
       std::bind(&PathPlanningNode::on_gosign, this, std::placeholders::_1));
 
     RCLCPP_INFO(
-      get_logger(), "waiting for /gosign=true; using %s with RDDF %s", pose_topic_.c_str(),
+      get_logger(), "waiting for /gosign=true; using %s with RDDF %s",
+      selected_pose_topic.c_str(),
       rddf_path.string().c_str());
   }
 
@@ -421,10 +425,11 @@ public:
   void load_parameters()
   {
     rddf_file_ = required_parameter<std::string>("rddf_file");
-    pose_topic_ = required_parameter<std::string>("pose_topic");
+    use_calibride_odom_ = required_parameter<bool>("use_calibride_odom");
     vehicle_width_m_ = required_parameter<double>("vehicle_width_m");
     vehicle_length_m_ = required_parameter<double>("vehicle_length_m");
     wheelbase_m_ = required_parameter<double>("wheelbase_m");
+    vehicle_max_steering_deg_ = required_parameter<double>("vehicle_max_steering_deg");
     wheel_track_m_ = required_parameter<double>("wheel_track_m");
     obstacle_inflation_radius_m_ =
       required_parameter<double>("obstacle_inflation_radius_m");
@@ -456,12 +461,10 @@ private:
     if (rddf_file_.empty()) {
       throw std::invalid_argument("rddf_file must not be empty");
     }
-    if (pose_topic_ != "/pose" && pose_topic_ != "/pose/calibration") {
-      throw std::invalid_argument("pose_topic must be /pose or /pose/calibration");
-    }
     require_positive("vehicle_width_m", vehicle_width_m_);
     require_positive("vehicle_length_m", vehicle_length_m_);
     require_positive("wheelbase_m", wheelbase_m_);
+    require_positive("vehicle_max_steering_deg", vehicle_max_steering_deg_);
     require_positive("wheel_track_m", wheel_track_m_);
     require_positive("obstacle_inflation_radius_m", obstacle_inflation_radius_m_);
     require_positive("track_lookup_resolution_m", track_lookup_resolution_m_);
@@ -484,10 +487,17 @@ private:
     if (steering_candidates_deg_.empty()) {
       throw std::invalid_argument("steering_candidates_deg must not be empty");
     }
+    if (vehicle_max_steering_deg_ >= 90.0) {
+      throw std::invalid_argument("vehicle_max_steering_deg must be less than 90 degrees");
+    }
     for (const double steering_deg : steering_candidates_deg_) {
       if (!std::isfinite(steering_deg) || std::abs(steering_deg) >= 90.0) {
         throw std::invalid_argument(
                 "steering_candidates_deg values must be finite and between -90 and 90");
+      }
+      if (std::abs(steering_deg) > vehicle_max_steering_deg_) {
+        throw std::invalid_argument(
+                "steering_candidates_deg values must not exceed vehicle_max_steering_deg");
       }
     }
     if (max_search_nodes_ <= 0) {
@@ -623,10 +633,11 @@ public:
 
 private:
   std::string rddf_file_;
-  std::string pose_topic_;
+  bool use_calibride_odom_{false};
   double vehicle_width_m_{};
   double vehicle_length_m_{};
   double wheelbase_m_{};
+  double vehicle_max_steering_deg_{};
   double wheel_track_m_{};
   double obstacle_inflation_radius_m_{};
   double track_lookup_resolution_m_{};
