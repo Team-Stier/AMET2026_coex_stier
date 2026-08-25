@@ -1,7 +1,5 @@
 control_node:
   ros__parameters:
-    # 차량 상태로 구독할 map-frame Odometry 토픽이다.
-    pose_topic: "/pose"
     # 정상 주행 시 /speed로 보낼 기본 목표속도다. 단위는 m/s이다.
     target_speed_m_s: 0.55
     # 어떤 제어 결과도 넘지 못하는 하드웨어 속도 상한이다.
@@ -14,7 +12,7 @@ control_node:
     pose_timeout_sec: 0.5
     path_timeout_sec: 0.5
     watchdog_period_sec: 0.1
-    # 선택한 pose 토픽 속도 분산의 허용 상한이다. 단위는 (m/s)^2이다.
+    # /pose/calibration 속도 분산의 허용 상한이다. 단위는 (m/s)^2이다.
     # calibration이 stale twist에 넣는 1e6은 이 검사에서 거부된다.
     maximum_speed_variance_m2_s2: 1.0
 
