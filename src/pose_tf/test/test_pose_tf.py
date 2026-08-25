@@ -11,6 +11,7 @@ from pose_tf.pose_tf_node import (
     DEFAULT_LIDAR_OFFSET_X_M,
     PoseTfNode,
     RAW_ODOMETRY_TOPIC,
+    RAW_POSE_TOPIC,
     convert_odometry,
     load_origin,
     transform_from_odometry,
@@ -36,12 +37,12 @@ def test_load_origin_rejects_empty_centerline(tmp_path: Path) -> None:
         load_origin(centerline)
 
 
-@pytest.mark.parametrize("source", [RAW_ODOMETRY_TOPIC, CALIBRATED_POSE_TOPIC])
+@pytest.mark.parametrize("source", [RAW_POSE_TOPIC, CALIBRATED_POSE_TOPIC])
 def test_validate_tf_source_accepts_supported_topics(source: str) -> None:
     assert validate_tf_source(source) == source
 
 
-@pytest.mark.parametrize("source", ["/pose/calibride", "/pose", 1])
+@pytest.mark.parametrize("source", ["/pose/calibride", RAW_ODOMETRY_TOPIC, 1])
 def test_validate_tf_source_rejects_other_values(source: object) -> None:
     with pytest.raises(ValueError, match="tf_source must be one of"):
         validate_tf_source(source)
@@ -145,7 +146,7 @@ def test_calibrated_callback_applies_lidar_offset_along_yaw() -> None:
 
 @pytest.mark.parametrize(
     ("tf_source", "expected_tf_count"),
-    [(RAW_ODOMETRY_TOPIC, 1), (CALIBRATED_POSE_TOPIC, 0)],
+    [(RAW_POSE_TOPIC, 1), (CALIBRATED_POSE_TOPIC, 0)],
 )
 def test_raw_odometry_always_publishes_pose_but_only_selected_tf(
     tf_source: str, expected_tf_count: int

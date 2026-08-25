@@ -357,10 +357,8 @@ public:
       "/object_info", rclcpp::QoS(10),
       std::bind(&PathPlanningNode::on_object_info, this, std::placeholders::_1));
 
-    const std::string selected_pose_topic =
-      use_calibride_odom_ ? "/pose/calibration" : "/pose";
     odometry_subscription_ = create_subscription<nav_msgs::msg::Odometry>(
-      selected_pose_topic, rclcpp::SensorDataQoS(),
+      pose_topic_, rclcpp::SensorDataQoS(),
       std::bind(&PathPlanningNode::on_selected_odometry, this, std::placeholders::_1));
 
     PlanningWorker::AttemptCallback attempt_callback;
@@ -374,7 +372,7 @@ public:
       *planner_, *registry_, std::move(attempt_callback), get_logger());
 
     RCLCPP_INFO(
-      get_logger(), "using %s with RDDF %s", selected_pose_topic.c_str(),
+      get_logger(), "using %s with RDDF %s", pose_topic_.c_str(),
       rddf_path.string().c_str());
   }
 
@@ -396,7 +394,7 @@ public:
   void load_parameters()
   {
     rddf_file_ = required_parameter<std::string>("rddf_file");
-    use_calibride_odom_ = required_parameter<bool>("use_calibride_odom");
+    pose_topic_ = required_parameter<std::string>("pose_topic");
     vehicle_width_m_ = required_parameter<double>("vehicle_width_m");
     vehicle_length_m_ = required_parameter<double>("vehicle_length_m");
     wheelbase_m_ = required_parameter<double>("wheelbase_m");
@@ -430,6 +428,9 @@ private:
   {
     if (rddf_file_.empty()) {
       throw std::invalid_argument("rddf_file must not be empty");
+    }
+    if (pose_topic_ != "/pose" && pose_topic_ != "/pose/calibration") {
+      throw std::invalid_argument("pose_topic must be /pose or /pose/calibration");
     }
     require_positive("vehicle_width_m", vehicle_width_m_);
     require_positive("vehicle_length_m", vehicle_length_m_);
@@ -587,7 +588,7 @@ public:
 
 private:
   std::string rddf_file_;
-  bool use_calibride_odom_{false};
+  std::string pose_topic_;
   double vehicle_width_m_{};
   double vehicle_length_m_{};
   double wheelbase_m_{};

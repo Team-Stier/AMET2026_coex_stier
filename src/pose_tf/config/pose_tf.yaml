@@ -1,6 +1,6 @@
 pose_tf_node:
   ros__parameters:
-    # /odom/laser keeps the existing conversion; /pose/calibration is map-frame.
-    tf_source: "/pose/calibration"
+    # /pose is the converted raw pose; /pose/calibration is LiDAR-calibrated.
+    tf_source: "/pose"
     # Base-to-LiDAR longitudinal offset applied only to calibrated TF.
     lidar_offset_x_m: -0.027
