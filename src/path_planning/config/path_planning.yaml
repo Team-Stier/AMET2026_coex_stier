@@ -1,7 +1,7 @@
 path_planning_node:
   ros__parameters:
     # RDDF 중심선/내·외곽 경계를 읽는 CSV. 상대 경로는 path_planning 패키지 share 디렉터리 기준이다.
-    rddf_file: "rddf/rddf_real_v04_corner_cut_2p0x.csv"
+    rddf_file: "rddf/rddf_real_v03_corner_cut_1p5x.csv"
     # false면 map frame의 /pose, true면 /pose/calibration 하나만 구독해 계획 시작 pose로 사용한다.
     use_calibride_odom: true
     # 장애물 충돌 검사에 쓰는 차량 직사각형의 전체 폭이다.
@@ -15,7 +15,7 @@ path_planning_node:
     # 좌우 바퀴 위치를 ±wheel_track/2로 정해 네 바퀴가 모두 트랙 밖인지 검사한다.
     wheel_track_m: 0.05
     # 검출된 각 장애물 점을 이 반지름의 원으로 만들어 차량 차체와 충돌 검사한다.
-    obstacle_inflation_radius_m: 0.25
+    obstacle_inflation_radius_m: 0.28
     # 트랙 여유 거리 lookup grid의 셀 간격이다. 작을수록 촘촘하지만 초기 계산량과 메모리가 늘어난다.
     track_lookup_resolution_m: 0.05
     # true면 성공한 Hybrid A* 탐색 트리를 수집해 /path_planning/debug/search_tree로 발행한다.
@@ -50,4 +50,4 @@ path_planning_node:
     # src/cost_functions 아래에서 Hybrid A* 탐색 비용으로 사용할 C++ 파일 이름이다.
     # distance.cpp: 현재와 동일한 최단 거리 비용
     # min_curvature.cpp: 이동 거리와 함께 곡률 및 급격한 곡률 변화를 최소화하는 비용
-    select_function: "distance.cpp"
+    select_function: "lap_time_qualifying.cpp"

@@ -20,6 +20,10 @@ find_package(std_msgs REQUIRED)
 add_library(planner_core
   src/planner_core.cpp
   src/cost_functions/distance.cpp
+  src/cost_functions/lap_time_balanced.cpp
+  src/cost_functions/lap_time_fast.cpp
+  src/cost_functions/lap_time_qualifying.cpp
+  src/cost_functions/lap_time_safe.cpp
   src/cost_functions/min_curvature.cpp
   src/cost_functions/select.cpp
 )

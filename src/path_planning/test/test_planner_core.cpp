@@ -162,6 +162,17 @@ TEST(CostModelTest, PenalizesCurvatureAndCurvatureChange)
   EXPECT_THROW(select_cost_function("unknown.cpp"), std::invalid_argument);
 }
 
+TEST(CostModelTest, SelectsEveryCompiledCostFunction)
+{
+  for (const std::string filename : {
+      "distance.cpp", "min_curvature.cpp", "lap_time_balanced.cpp",
+      "lap_time_fast.cpp", "lap_time_qualifying.cpp", "lap_time_safe.cpp"})
+  {
+    EXPECT_NE(select_cost_function(filename).transition_cost, nullptr);
+    EXPECT_NE(select_cost_function(filename).heuristic, nullptr);
+  }
+}
+
 TEST(HybridAStarPlannerTest, ValidatesSteeringCandidates)
 {
   const RddfTrack track = square_track();

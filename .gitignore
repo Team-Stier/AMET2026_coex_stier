@@ -50,3 +50,8 @@ compile_commands.json
 
 # 뭐여
 /AMET2026_coex_stier/
+
+# Local simulator utility
+/randomize_cones.sh
+# Generated previews
+*.png
