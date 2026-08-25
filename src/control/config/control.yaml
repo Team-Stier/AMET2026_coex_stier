@@ -45,9 +45,9 @@ control_node:
     # 기존 동작을 유지하도록 기본값은 비활성화다.
     adaptive_control.enabled: true
     adaptive_control.preview_distance_m: 1.0
-    adaptive_control.min_lookahead_m: 0.25
+    adaptive_control.min_lookahead_m: 0.45
     adaptive_control.max_lookahead_m: 1.50
     adaptive_control.curvature_reference_inv_m: 2.0
     adaptive_control.max_lateral_acceleration_m_s2: 0.8
-    adaptive_control.min_speed_limit_m_s: 1.0
+    adaptive_control.min_speed_limit_m_s: 0.30
     adaptive_control.max_speed_limit_m_s: 2.50
