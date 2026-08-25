@@ -8,8 +8,10 @@ from sensor_msgs.msg import LaserScan
 
 from calibration.calibration_node import (
     CalibrationNode,
+    fit_with_yaw_recovery,
     propagate_pose_with_relative_motion,
 )
+from calibration.wall_fitter import FitResult
 
 
 class CalibrationState(SimpleNamespace):
@@ -29,6 +31,33 @@ class RecordingPublisher:
 class SilentLogger:
     def warning(self, *args, **kwargs):
         pass
+
+
+class ScriptedRecoveryFitter:
+    minimum_matches_per_wall = 12
+
+    def __init__(self, results_by_seed_yaw=None, first_result=None):
+        self.results_by_seed_yaw = results_by_seed_yaw or {}
+        self.first_result = first_result
+        self.fit_calls = []
+        self.fit_first_calls = []
+
+    def fit(self, _points, seed):
+        self.fit_calls.append(seed)
+        return self.results_by_seed_yaw.get(round(seed[2], 2))
+
+    def fit_first(self, _points, initial_poses, maximum_rms_error_m):
+        self.fit_first_calls.append((initial_poses, maximum_rms_error_m))
+        return self.first_result
+
+
+def fit_result(pose, rms=0.02, wall_counts=(20, 20, 0, 0)):
+    return FitResult(
+        pose=pose,
+        rms_error_m=rms,
+        match_count=sum(wall_counts),
+        wall_match_counts=wall_counts,
+    )
 
 
 def test_tracking_reset_clears_pose_prior():
@@ -199,6 +228,112 @@ def test_relative_motion_rotates_into_calibrated_frame():
     assert predicted[0] == pytest.approx(1.0)
     assert predicted[1] == pytest.approx(3.0)
     assert predicted[2] == pytest.approx(3.0 * math.pi / 4.0)
+
+
+def test_yaw_recovery_prefers_smaller_correction_within_rms_tie():
+    fitter = ScriptedRecoveryFitter(
+        {
+            -0.2: fit_result((0.04, 0.0, 0.08), rms=0.020),
+            0.2: fit_result((0.01, 0.0, 0.03), rms=0.023),
+        }
+    )
+
+    result = fit_with_yaw_recovery(
+        fitter,
+        np.zeros((50, 2)),
+        (0.0, 0.0, 0.0),
+        (-0.2, 0.2),
+        maximum_rms_error_m=0.08,
+        maximum_position_correction_m=0.25,
+        maximum_yaw_correction_rad=0.15,
+        rms_tie_tolerance_m=0.005,
+    )
+
+    assert result is not None
+    assert result.pose == pytest.approx((0.01, 0.0, 0.03))
+
+
+@pytest.mark.parametrize(
+    "unsafe_pose",
+    [
+        (0.0, 0.0, 0.16),
+        (0.26, 0.0, 0.0),
+        (0.0, 0.0, math.pi),
+    ],
+)
+def test_yaw_recovery_rechecks_limits_from_unshifted_reference(unsafe_pose):
+    fitter = ScriptedRecoveryFitter({0.2: fit_result(unsafe_pose)})
+
+    result = fit_with_yaw_recovery(
+        fitter,
+        np.zeros((50, 2)),
+        (0.0, 0.0, 0.0),
+        (0.2,),
+        maximum_rms_error_m=0.08,
+        maximum_position_correction_m=0.25,
+        maximum_yaw_correction_rad=0.15,
+        rms_tie_tolerance_m=0.005,
+    )
+
+    assert result is None
+
+
+def test_regular_two_wall_fit_keeps_priority_over_yaw_recovery():
+    regular_result = fit_result((1.1, 2.0, 0.02))
+    primary = ScriptedRecoveryFitter(first_result=None)
+    two_wall = ScriptedRecoveryFitter(first_result=regular_result)
+    state = SimpleNamespace(
+        _fit_initial_poses=lambda _stamp: ((1.0, 2.0, 0.0),),
+        _fitter=primary,
+        _two_wall_fitter=two_wall,
+        _maximum_rms_error_m=0.10,
+        _two_wall_maximum_rms_error_m=0.08,
+        _yaw_recovery_enabled=True,
+        _fallback_pose=lambda _stamp: (1.0, 2.0, 0.0),
+        _yaw_recovery_offsets_rad=(-0.2, -0.1, 0.1, 0.2),
+        _two_wall_maximum_position_step_m=0.25,
+        _two_wall_maximum_yaw_step_rad=0.15,
+        _yaw_recovery_rms_tie_tolerance_m=0.005,
+    )
+
+    result = CalibrationNode._fit(state, np.zeros((50, 2)), 1_000)
+
+    assert result is regular_result
+    assert two_wall.fit_calls == []
+
+
+def test_yaw_recovery_uses_only_fresh_predicted_pose():
+    recovered_result = fit_result((1.02, 2.0, 0.05))
+    primary = ScriptedRecoveryFitter(first_result=None)
+    two_wall = ScriptedRecoveryFitter(
+        results_by_seed_yaw={0.2: recovered_result}, first_result=None
+    )
+    predicted_pose = (1.0, 2.0, 0.0)
+    state = SimpleNamespace(
+        _fit_initial_poses=lambda _stamp: (predicted_pose, (9.0, 9.0, 1.0)),
+        _fitter=primary,
+        _two_wall_fitter=two_wall,
+        _maximum_rms_error_m=0.10,
+        _two_wall_maximum_rms_error_m=0.08,
+        _yaw_recovery_enabled=True,
+        _fallback_pose=lambda _stamp: predicted_pose,
+        _yaw_recovery_offsets_rad=(0.2,),
+        _two_wall_maximum_position_step_m=0.25,
+        _two_wall_maximum_yaw_step_rad=0.15,
+        _yaw_recovery_rms_tie_tolerance_m=0.005,
+    )
+
+    result = CalibrationNode._fit(state, np.zeros((50, 2)), 1_000)
+
+    assert result is recovered_result
+    assert two_wall.fit_calls == [(1.0, 2.0, 0.2)]
+
+    state._fallback_pose = lambda _stamp: None
+    two_wall.fit_calls.clear()
+    result = CalibrationNode._fit(state, np.zeros((50, 2)), 1_100)
+
+    assert result is None
+    assert two_wall.fit_calls == []
 
 
 def test_fallback_pose_uses_fresh_relative_odom_motion():

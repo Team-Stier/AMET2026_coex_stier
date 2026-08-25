@@ -10,6 +10,8 @@ path_planning_node:
     vehicle_length_m: 0.28
     # 앞바퀴 위치와 자전거 모델 곡률(tan(조향각)/wheelbase)을 결정한다.
     wheelbase_m: 0.18
+    # 실차 앞바퀴의 물리 조향 한계다. 모든 planning 후보는 이 값 이하여야 한다.
+    vehicle_max_steering_deg: 20.0
     # 좌우 바퀴 위치를 ±wheel_track/2로 정해 네 바퀴가 모두 트랙 밖인지 검사한다.
     wheel_track_m: 0.05
     # 검출된 각 장애물 점을 이 반지름의 원으로 만들어 차량 차체와 충돌 검사한다.
@@ -30,8 +32,8 @@ path_planning_node:
     collision_check_step_m: 0.025
     # Hybrid A*가 한 번 확장할 때 각 조향 후보로 전진시키는 거리다.
     motion_primitive_length_m: 0.25
-    # 각 상태에서 생성할 전진 primitive의 조향각 목록이다. 단위는 degree이며 모든 항목을 확장한다.
-    steering_candidates_deg: [-60.0, -30.0, 0.0, 30.0, 60.0]
+    # 제어 보정 여유 2도를 남긴 전진 primitive 조향각이다. 단위는 degree이며 모든 항목을 확장한다.
+    steering_candidates_deg: [-18.0, -9.0, 0.0, 9.0, 18.0]
     # RDDF 진행도를 이 간격으로 양자화해 같은 탐색 상태인지 판별한다.
     progress_resolution_m: 0.20
     # 목표 progress와 목표 횡단선의 전후 방향 오차에 허용하는 거리이며 휴리스틱에도 반영된다.

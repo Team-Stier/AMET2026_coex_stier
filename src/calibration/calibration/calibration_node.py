@@ -51,6 +51,94 @@ def propagate_pose_with_relative_motion(
     return predicted_x, predicted_y, predicted_yaw
 
 
+def fit_with_yaw_recovery(
+    fitter: RectangleWallFitter,
+    points: np.ndarray,
+    reference_pose: tuple[float, float, float],
+    yaw_offsets_rad: tuple[float, ...],
+    maximum_rms_error_m: float,
+    maximum_position_correction_m: float,
+    maximum_yaw_correction_rad: float,
+    rms_tie_tolerance_m: float,
+) -> FitResult | None:
+    """Retry a failed fit from nearby yaw seeds without widening pose limits."""
+    candidates: list[
+        tuple[FitResult, int, float, float, int]
+    ] = []
+    reference_x, reference_y, reference_yaw = reference_pose
+    for offset_index, yaw_offset in enumerate(yaw_offsets_rad):
+        seed = (
+            reference_x,
+            reference_y,
+            math.atan2(
+                math.sin(reference_yaw + yaw_offset),
+                math.cos(reference_yaw + yaw_offset),
+            ),
+        )
+        result = fitter.fit(points, seed)
+        if result is None or result.rms_error_m > maximum_rms_error_m:
+            continue
+
+        position_correction_m = math.hypot(
+            result.pose[0] - reference_x,
+            result.pose[1] - reference_y,
+        )
+        yaw_correction_rad = abs(
+            math.atan2(
+                math.sin(result.pose[2] - reference_yaw),
+                math.cos(result.pose[2] - reference_yaw),
+            )
+        )
+        if (
+            position_correction_m > maximum_position_correction_m
+            or yaw_correction_rad > maximum_yaw_correction_rad
+        ):
+            continue
+
+        qualified_wall_count = sum(
+            count >= fitter.minimum_matches_per_wall
+            for count in result.wall_match_counts
+        )
+        candidates.append(
+            (
+                result,
+                qualified_wall_count,
+                position_correction_m,
+                yaw_correction_rad,
+                offset_index,
+            )
+        )
+
+    if not candidates:
+        return None
+
+    maximum_qualified_walls = max(candidate[1] for candidate in candidates)
+    observable_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate[1] == maximum_qualified_walls
+    ]
+    minimum_rms_error_m = min(
+        candidate[0].rms_error_m for candidate in observable_candidates
+    )
+    near_best_candidates = [
+        candidate
+        for candidate in observable_candidates
+        if candidate[0].rms_error_m
+        <= minimum_rms_error_m + rms_tie_tolerance_m
+    ]
+    selected = min(
+        near_best_candidates,
+        key=lambda candidate: (
+            candidate[3],
+            candidate[2],
+            candidate[0].rms_error_m,
+            candidate[4],
+        ),
+    )
+    return selected[0]
+
+
 class CalibrationNode(Node):
     """Publish a map pose by fitting /scan returns to the rectangular walls."""
 
@@ -117,13 +205,45 @@ class CalibrationNode(Node):
         self._two_wall_maximum_rms_error_m = float(
             self.get_parameter("two_wall_maximum_rms_error_m").value
         )
+        self._two_wall_maximum_position_step_m = float(
+            self.get_parameter("two_wall_maximum_position_step_m").value
+        )
+        self._two_wall_maximum_yaw_step_rad = float(
+            self.get_parameter("two_wall_maximum_yaw_step_rad").value
+        )
+        self._yaw_recovery_enabled = bool(
+            self.get_parameter("yaw_recovery_enabled").value
+        )
+        self._yaw_recovery_offsets_rad = tuple(
+            float(value)
+            for value in self.get_parameter("yaw_recovery_offsets_rad").value
+        )
+        self._yaw_recovery_rms_tie_tolerance_m = float(
+            self.get_parameter("yaw_recovery_rms_tie_tolerance_m").value
+        )
         if minimum_walls < 2 or minimum_walls > 4:
             raise ValueError("minimum_walls must be between 2 and 4")
         if (
             not math.isfinite(self._two_wall_maximum_rms_error_m)
             or self._two_wall_maximum_rms_error_m <= 0.0
+            or not math.isfinite(self._two_wall_maximum_position_step_m)
+            or self._two_wall_maximum_position_step_m <= 0.0
+            or not math.isfinite(self._two_wall_maximum_yaw_step_rad)
+            or self._two_wall_maximum_yaw_step_rad <= 0.0
+            or not math.isfinite(self._yaw_recovery_rms_tie_tolerance_m)
+            or self._yaw_recovery_rms_tie_tolerance_m < 0.0
+            or (
+                self._yaw_recovery_enabled
+                and not self._yaw_recovery_offsets_rad
+            )
+            or any(
+                not math.isfinite(value)
+                or abs(value) < 1.0e-9
+                or abs(value) > math.pi
+                for value in self._yaw_recovery_offsets_rad
+            )
         ):
-            raise ValueError("two-wall RMS threshold must be finite and positive")
+            raise ValueError("two-wall and yaw-recovery parameters are invalid")
         self._fitter = RectangleWallFitter(
             wall_bounds,
             maximum_match_distance_m=float(
@@ -154,10 +274,10 @@ class CalibrationNode(Node):
                     self.get_parameter("two_wall_minimum_matches_per_wall").value
                 ),
                 maximum_position_step_m=float(
-                    self.get_parameter("two_wall_maximum_position_step_m").value
+                    self._two_wall_maximum_position_step_m
                 ),
                 maximum_yaw_step_rad=float(
-                    self.get_parameter("two_wall_maximum_yaw_step_rad").value
+                    self._two_wall_maximum_yaw_step_rad
                 ),
             )
 
@@ -216,6 +336,11 @@ class CalibrationNode(Node):
         self.declare_parameter("two_wall_maximum_position_step_m", 0.25)
         self.declare_parameter("two_wall_maximum_yaw_step_rad", 0.15)
         self.declare_parameter("two_wall_maximum_rms_error_m", 0.08)
+        self.declare_parameter("yaw_recovery_enabled", True)
+        self.declare_parameter(
+            "yaw_recovery_offsets_rad", [-0.20, -0.10, 0.10, 0.20]
+        )
+        self.declare_parameter("yaw_recovery_rms_tie_tolerance_m", 0.005)
         self.declare_parameter("maximum_prior_age_sec", 0.25)
 
     def _on_prior(self, message: Odometry) -> None:
@@ -372,8 +497,24 @@ class CalibrationNode(Node):
         )
         if result is not None or self._two_wall_fitter is None:
             return result
-        return self._two_wall_fitter.fit_first(
+        result = self._two_wall_fitter.fit_first(
             points, initial_poses, self._two_wall_maximum_rms_error_m
+        )
+        if result is not None or not self._yaw_recovery_enabled:
+            return result
+
+        predicted_pose = self._fallback_pose(stamp_ns)
+        if predicted_pose is None:
+            return None
+        return fit_with_yaw_recovery(
+            self._two_wall_fitter,
+            points,
+            predicted_pose,
+            self._yaw_recovery_offsets_rad,
+            self._two_wall_maximum_rms_error_m,
+            self._two_wall_maximum_position_step_m,
+            self._two_wall_maximum_yaw_step_rad,
+            self._yaw_recovery_rms_tie_tolerance_m,
         )
 
     def _on_scan(self, scan: LaserScan) -> None:
