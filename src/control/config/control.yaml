@@ -8,6 +8,13 @@ control_node:
     stop_speed_threshold_m_s: 0.000001
     # /camera/pan으로 계속 보낼 고정 팬 각도다. 단위는 rad이다.
     camera_pan_command_rad: 0.0
+    # 보정 pose 또는 path가 이 시간 동안 갱신되지 않으면 watchdog이 정지한다.
+    pose_timeout_sec: 0.5
+    path_timeout_sec: 0.5
+    watchdog_period_sec: 0.1
+    # /pose/calibration 속도 분산의 허용 상한이다. 단위는 (m/s)^2이다.
+    # calibration이 stale twist에 넣는 1e6은 이 검사에서 거부된다.
+    maximum_speed_variance_m2_s2: 1.0
 
     # Pure Pursuit 횡방향 제어 설정이다.
     pure_pursuit.wheelbase_m: 0.18

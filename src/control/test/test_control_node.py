@@ -1,3 +1,6 @@
+import math
+import time
+
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry, Path
 import pytest
@@ -26,7 +29,9 @@ def test_control_node_latches_first_true_gosign():
         pose = Odometry()
         pose.header.frame_id = "map"
         pose.pose.pose.orientation.w = 1.0
+        pose.twist.twist.linear.x = 0.7
         node.on_pose(pose)
+        assert node.vehicle_state.speed == pytest.approx(0.7)
 
         path = Path()
         path.header.frame_id = "map"
@@ -56,12 +61,155 @@ def test_control_node_latches_first_true_gosign():
             rclpy.shutdown()
 
 
+def test_control_node_stops_on_nonfinite_calibrated_speed():
+    rclpy.init()
+    node = ControlNode()
+    node.speed_pub = Recorder()
+    node.steering_pub = Recorder()
+    node.camera_pan_pub = Recorder()
+    try:
+        pose = Odometry()
+        pose.header.frame_id = "map"
+        pose.pose.pose.orientation.w = 1.0
+        pose.twist.twist.linear.x = math.nan
+
+        node.on_pose(pose)
+
+        assert node.vehicle_state is None
+        assert node.speed_pub.values[-1] == pytest.approx(0.0)
+        assert node.steering_pub.values[-1] == pytest.approx(0.0)
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+def test_control_node_handles_large_finite_quaternion_without_overflow():
+    rclpy.init()
+    node = ControlNode()
+    node.speed_pub = Recorder()
+    node.steering_pub = Recorder()
+    node.camera_pan_pub = Recorder()
+    try:
+        pose = Odometry()
+        pose.header.frame_id = "map"
+        pose.pose.pose.orientation.w = 1.0e308
+        pose.twist.twist.linear.x = 0.5
+
+        node.on_pose(pose)
+
+        assert node.vehicle_state is not None
+        assert node.vehicle_state.yaw == pytest.approx(0.0)
+        assert node.vehicle_state.speed == pytest.approx(0.5)
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+def test_control_node_rejects_stale_twist_covariance_marker():
+    rclpy.init()
+    node = ControlNode()
+    node.speed_pub = Recorder()
+    node.steering_pub = Recorder()
+    node.camera_pan_pub = Recorder()
+    try:
+        pose = Odometry()
+        pose.header.frame_id = "map"
+        pose.pose.pose.orientation.w = 1.0
+        pose.twist.twist.linear.x = 0.0
+        pose.twist.covariance[0] = 1.0e6
+
+        node.on_pose(pose)
+
+        assert node.vehicle_state is None
+        assert node.speed_pub.values[-1] == pytest.approx(0.0)
+        assert node.steering_pub.values[-1] == pytest.approx(0.0)
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+def test_control_watchdog_stops_when_calibrated_pose_is_stale():
+    rclpy.init()
+    node = ControlNode()
+    node.speed_pub = Recorder()
+    node.steering_pub = Recorder()
+    node.camera_pan_pub = Recorder()
+    try:
+        pose = Odometry()
+        pose.header.frame_id = "map"
+        pose.pose.pose.orientation.w = 1.0
+        pose.twist.twist.linear.x = 0.5
+        node.on_pose(pose)
+
+        path = Path()
+        path.header.frame_id = "map"
+        path.poses = [PoseStamped(), PoseStamped()]
+        path.poses[1].pose.position.x = 1.0
+        node.on_gosign(Bool(data=True))
+        node.on_path(path)
+        assert node.speed_pub.values[-1] == pytest.approx(0.55)
+
+        node.last_pose_time = (
+            time.monotonic() - node.pose_timeout_sec - 0.1
+        )
+        node.on_watchdog()
+
+        assert node.vehicle_state is None
+        assert node.speed_pub.values[-1] == pytest.approx(0.0)
+        assert node.steering_pub.values[-1] == pytest.approx(0.0)
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+def test_control_watchdog_stops_when_path_is_stale():
+    rclpy.init()
+    node = ControlNode()
+    node.speed_pub = Recorder()
+    node.steering_pub = Recorder()
+    node.camera_pan_pub = Recorder()
+    try:
+        pose = Odometry()
+        pose.header.frame_id = "map"
+        pose.pose.pose.orientation.w = 1.0
+        node.on_pose(pose)
+
+        path = Path()
+        path.header.frame_id = "map"
+        path.poses = [PoseStamped(), PoseStamped()]
+        path.poses[1].pose.position.x = 1.0
+        node.on_gosign(Bool(data=True))
+        node.on_path(path)
+        assert node.speed_pub.values[-1] == pytest.approx(0.55)
+
+        node.last_path_time = (
+            time.monotonic() - node.path_timeout_sec - 0.1
+        )
+        node.on_watchdog()
+
+        assert node.vehicle_state is not None
+        assert node.speed_pub.values[-1] == pytest.approx(0.0)
+        assert node.steering_pub.values[-1] == pytest.approx(0.0)
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
 def test_control_node_applies_parameter_overrides():
     rclpy.init()
     node = ControlNode(
         parameter_overrides=[
             Parameter("target_speed_m_s", value=1.2),
             Parameter("max_speed_m_s", value=2.5),
+            Parameter("pose_timeout_sec", value=0.7),
+            Parameter("path_timeout_sec", value=0.8),
+            Parameter("watchdog_period_sec", value=0.2),
+            Parameter("maximum_speed_variance_m2_s2", value=0.5),
             Parameter(
                 "camera_pan_command_rad", value=0.1
             ),
@@ -80,6 +228,10 @@ def test_control_node_applies_parameter_overrides():
     try:
         assert node.target_speed == pytest.approx(1.2)
         assert node.camera_pan_command == pytest.approx(0.1)
+        assert node.pose_timeout_sec == pytest.approx(0.7)
+        assert node.path_timeout_sec == pytest.approx(0.8)
+        assert node.watchdog_period_sec == pytest.approx(0.2)
+        assert node.maximum_speed_variance_m2_s2 == pytest.approx(0.5)
         assert node.controller.config.max_speed_m_s == pytest.approx(2.5)
         assert node.controller.config.longitudinal_pid_enabled is True
         assert node.controller.config.adaptive_control.enabled is True

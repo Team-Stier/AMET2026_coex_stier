@@ -67,8 +67,8 @@ class RectangleWallFitter:
             raise ValueError("wall distance thresholds must be positive")
         if minimum_matches < 3 or minimum_matches_per_wall < 1:
             raise ValueError("wall match thresholds must be positive")
-        if minimum_walls < 3 or minimum_walls > 4:
-            raise ValueError("minimum_walls must be between 3 and 4")
+        if minimum_walls < 2 or minimum_walls > 4:
+            raise ValueError("minimum_walls must be between 2 and 4")
         if maximum_position_step_m <= 0.0 or maximum_yaw_step_rad <= 0.0:
             raise ValueError("pose step limits must be positive")
         if maximum_iterations < 1:
@@ -124,10 +124,18 @@ class RectangleWallFitter:
         return nearest, keep, residuals[rows, nearest]
 
     def _enough_walls(self, counts: np.ndarray) -> bool:
-        return (
-            int(np.count_nonzero(counts >= self.minimum_matches_per_wall))
-            >= self.minimum_walls
-        )
+        qualified = counts >= self.minimum_matches_per_wall
+        if int(np.count_nonzero(qualified)) < self.minimum_walls:
+            return False
+        if self.minimum_walls != 2:
+            return True
+
+        # Opposite rectangle walls are parallel and cannot constrain motion
+        # along the walls reliably. A two-wall fit is observable only when at
+        # least one horizontal and one vertical wall are both represented.
+        horizontal_visible = bool(qualified[0] or qualified[2])
+        vertical_visible = bool(qualified[1] or qualified[3])
+        return horizontal_visible and vertical_visible
 
     def fit(
         self,
