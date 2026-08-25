@@ -14,6 +14,7 @@ from .models import (
     ControllerConfig,
     PIDConfig,
     PurePursuitConfig,
+    SpeedLookaheadConfig,
     VehicleState,
 )
 from .pid import PIDController
@@ -30,6 +31,25 @@ class ControlNode(Node):
         self.camera_pan_command = self._float_parameter(
             "camera_pan_command_rad", 0.0
         )
+        self.pose_timeout_sec = self._float_parameter(
+            "pose_timeout_sec", 0.5
+        )
+        self.path_timeout_sec = self._float_parameter(
+            "path_timeout_sec", 0.5
+        )
+        self.watchdog_period_sec = self._float_parameter(
+            "watchdog_period_sec", 0.1
+        )
+        self.maximum_speed_variance_m2_s2 = self._float_parameter(
+            "maximum_speed_variance_m2_s2", 1.0
+        )
+        if (
+            self.pose_timeout_sec <= 0.0
+            or self.path_timeout_sec <= 0.0
+            or self.watchdog_period_sec <= 0.0
+            or self.maximum_speed_variance_m2_s2 <= 0.0
+        ):
+            raise ValueError("control timeouts and speed variance must be positive")
         pure_pursuit_config = PurePursuitConfig(
             wheelbase_m=self._float_parameter(
                 "pure_pursuit.wheelbase_m", 0.18
@@ -70,7 +90,7 @@ class ControlNode(Node):
                 "adaptive_control.min_lookahead_m", 0.25
             ),
             max_lookahead_m=self._float_parameter(
-                "adaptive_control.max_lookahead_m", 0.40
+                "adaptive_control.max_lookahead_m", 1.50
             ),
             curvature_reference_inv_m=self._float_parameter(
                 "adaptive_control.curvature_reference_inv_m", 2.0
@@ -85,6 +105,18 @@ class ControlNode(Node):
                 "adaptive_control.max_speed_limit_m_s", 0.80
             ),
         )
+        speed_lookahead_config = SpeedLookaheadConfig(
+            enabled=self._bool_parameter("speed_lookahead.enabled", True),
+            lookahead_time_sec=self._float_parameter(
+                "speed_lookahead.lookahead_time_sec", 0.55
+            ),
+            min_lookahead_m=self._float_parameter(
+                "speed_lookahead.min_lookahead_m", 0.45
+            ),
+            max_lookahead_m=self._float_parameter(
+                "speed_lookahead.max_lookahead_m", 1.50
+            ),
+        )
         controller_config = ControllerConfig(
             longitudinal_pid_enabled=self._bool_parameter(
                 "longitudinal_pid.enabled", False
@@ -93,6 +125,7 @@ class ControlNode(Node):
             stop_speed_threshold_m_s=self._float_parameter(
                 "stop_speed_threshold_m_s", 1.0e-6
             ),
+            speed_lookahead=speed_lookahead_config,
             adaptive_control=adaptive_config,
         )
         self.controller = ControllerCore(
@@ -103,6 +136,8 @@ class ControlNode(Node):
         self.vehicle_state = None
         self.gosign = False
         self.last_update = time.monotonic()
+        self.last_pose_time = None
+        self.last_path_time = None
 
         self.speed_pub = self.create_publisher(Float64, "/speed", 10)
         self.steering_pub = self.create_publisher(Float64, "/steering", 10)
@@ -112,7 +147,10 @@ class ControlNode(Node):
             Bool, "/gosign", self.on_gosign, 10
         )
         self.pose_sub = self.create_subscription(
-            Odometry, "/pose", self.on_pose, qos_profile_sensor_data
+            Odometry, "/pose/calibration", self.on_pose, qos_profile_sensor_data
+        )
+        self.watchdog_timer = self.create_timer(
+            self.watchdog_period_sec, self.on_watchdog
         )
 
     def _float_parameter(self, name: str, default: float) -> float:
@@ -125,43 +163,98 @@ class ControlNode(Node):
         return bool(self.declare_parameter(name, default).value)
 
     def on_pose(self, pose: Odometry) -> None:
-        if pose.header.frame_id != "map":
-            self.vehicle_state = None
-            self.publish_stop()
+        position = pose.pose.pose.position
+        orientation = pose.pose.pose.orientation
+        speed = pose.twist.twist.linear.x
+        speed_variance = pose.twist.covariance[0]
+        quaternion_norm = math.hypot(
+            orientation.x,
+            orientation.y,
+            orientation.z,
+            orientation.w,
+        )
+        if (
+            pose.header.frame_id != "map"
+            or not math.isfinite(position.x)
+            or not math.isfinite(position.y)
+            or not math.isfinite(speed)
+            or not math.isfinite(speed_variance)
+            or speed_variance < 0.0
+            or speed_variance > self.maximum_speed_variance_m2_s2
+            or not math.isfinite(quaternion_norm)
+            or quaternion_norm < 1.0e-9
+        ):
+            self._stop_control(clear_vehicle_state=True)
             return
 
-        orientation = pose.pose.pose.orientation
+        qx = orientation.x / quaternion_norm
+        qy = orientation.y / quaternion_norm
+        qz = orientation.z / quaternion_norm
+        qw = orientation.w / quaternion_norm
         yaw = math.atan2(
-            2.0 * (orientation.w * orientation.z + orientation.x * orientation.y),
-            1.0 - 2.0 * (orientation.y ** 2 + orientation.z ** 2),
+            2.0 * (qw * qz + qx * qy),
+            1.0 - 2.0 * (qy ** 2 + qz ** 2),
         )
-        position = pose.pose.pose.position
         self.vehicle_state = VehicleState(
-            position.x, position.y, yaw, pose.twist.twist.linear.x
+            position.x, position.y, yaw, speed
         )
+        self.last_pose_time = time.monotonic()
 
     def on_path(self, path: Path) -> None:
+        now = time.monotonic()
+        path_points = [
+            (pose.pose.position.x, pose.pose.position.y) for pose in path.poses
+        ]
+        valid_path = (
+            path.header.frame_id == "map"
+            and len(path_points) >= 2
+            and all(
+                math.isfinite(x) and math.isfinite(y)
+                for x, y in path_points
+            )
+        )
+        if valid_path:
+            self.last_path_time = now
+        else:
+            self.last_path_time = None
+
+        pose_stale = (
+            self.last_pose_time is None
+            or now - self.last_pose_time > self.pose_timeout_sec
+        )
         if (
             not self.gosign
             or self.vehicle_state is None
-            or path.header.frame_id != "map"
-            or len(path.poses) < 2
+            or pose_stale
+            or not valid_path
         ):
-            self.publish_stop()
+            self._stop_control(clear_vehicle_state=pose_stale)
             return
 
-        now = time.monotonic()
         result = self.controller.update(
             self.vehicle_state,
-            [(pose.pose.position.x, pose.pose.position.y) for pose in path.poses],
+            path_points,
             self.target_speed,
             max(now - self.last_update, 1.0e-4),
         )
         self.last_update = now
         if not math.isfinite(result.speed_command_m_s + result.steering_rad):
-            self.publish_stop()
+            self._stop_control()
             return
         self.publish_commands(result.speed_command_m_s, result.steering_rad)
+
+    def on_watchdog(self) -> None:
+        now = time.monotonic()
+        pose_stale = (
+            self.last_pose_time is None
+            or now - self.last_pose_time > self.pose_timeout_sec
+        )
+        path_stale = (
+            self.last_path_time is None
+            or now - self.last_path_time > self.path_timeout_sec
+        )
+        if not self.gosign or pose_stale or path_stale:
+            self._stop_control(clear_vehicle_state=pose_stale)
 
     def on_gosign(self, gosign: Bool) -> None:
         if not self.gosign and gosign.data:
@@ -173,6 +266,14 @@ class ControlNode(Node):
         self.camera_pan_pub.publish(
             Float64(data=float(self.camera_pan_command))
         )
+
+    def _stop_control(self, clear_vehicle_state: bool = False) -> None:
+        if clear_vehicle_state:
+            self.vehicle_state = None
+            self.last_pose_time = None
+        self.controller.pid.reset()
+        self.last_update = time.monotonic()
+        self.publish_stop()
 
     def publish_stop(self) -> None:
         self.publish_commands(0.0, 0.0)

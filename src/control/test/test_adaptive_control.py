@@ -5,13 +5,14 @@ from control.adaptive_policy import (
     AdaptiveControlPolicy,
     curvature_speed_limit,
 )
-from control.controller_core import ControllerCore
+from control.controller_core import ControllerCore, speed_lookahead_distance_m
 from control.models import (
     AdaptiveControlConfig,
     ControllerConfig,
     PIDConfig,
     PathPoint,
     PurePursuitConfig,
+    SpeedLookaheadConfig,
     VehicleState,
 )
 from control.path_metrics import discrete_curvature, preview_curvature
@@ -34,7 +35,23 @@ def adaptive_config(**overrides):
     return AdaptiveControlConfig(**values)
 
 
-def make_core(adaptive=None, closed_loop=False, pid_enabled=False):
+def speed_lookahead_config(**overrides):
+    values = {
+        "enabled": True,
+        "lookahead_time_sec": 0.55,
+        "min_lookahead_m": 0.45,
+        "max_lookahead_m": 1.50,
+    }
+    values.update(overrides)
+    return SpeedLookaheadConfig(**values)
+
+
+def make_core(
+    adaptive=None,
+    closed_loop=False,
+    pid_enabled=False,
+    speed_lookahead=None,
+):
     pursuit = PurePursuit(PurePursuitConfig(
         wheelbase_m=0.18,
         lookahead_distance_m=0.45,
@@ -56,9 +73,43 @@ def make_core(adaptive=None, closed_loop=False, pid_enabled=False):
         ControllerConfig(
             longitudinal_pid_enabled=pid_enabled,
             max_speed_m_s=3.0,
+            speed_lookahead=speed_lookahead or SpeedLookaheadConfig(),
             adaptive_control=adaptive or AdaptiveControlConfig(),
         ),
     )
+
+
+class SpeedLookaheadTests(unittest.TestCase):
+    def test_configured_operating_points(self):
+        config = speed_lookahead_config()
+
+        self.assertAlmostEqual(
+            speed_lookahead_distance_m(0.55, config), 0.45
+        )
+        self.assertAlmostEqual(
+            speed_lookahead_distance_m(1.5, config), 0.825
+        )
+        self.assertAlmostEqual(
+            speed_lookahead_distance_m(3.0, config), 1.50
+        )
+
+    def test_speed_magnitude_and_bounds_are_applied(self):
+        config = speed_lookahead_config()
+
+        self.assertAlmostEqual(speed_lookahead_distance_m(0.0, config), 0.45)
+        self.assertAlmostEqual(speed_lookahead_distance_m(-1.5, config), 0.825)
+        self.assertAlmostEqual(speed_lookahead_distance_m(10.0, config), 1.50)
+
+    def test_invalid_speed_is_rejected(self):
+        with self.assertRaises(ValueError):
+            speed_lookahead_distance_m(math.nan, speed_lookahead_config())
+
+    def test_invalid_bounds_are_rejected(self):
+        with self.assertRaises(ValueError):
+            speed_lookahead_config(
+                min_lookahead_m=1.0,
+                max_lookahead_m=0.5,
+            )
 
 
 class DiscreteCurvatureTests(unittest.TestCase):
@@ -172,6 +223,60 @@ class AdaptivePolicyTests(unittest.TestCase):
 
 
 class ControllerIntegrationTests(unittest.TestCase):
+    def test_disabled_speed_lookahead_uses_fixed_distance(self):
+        path = [(0.0, 0.0), (0.5, 0.0), (1.0, 0.0)]
+        result = make_core().update(
+            VehicleState(0.0, 0.0, 0.0, 3.0), path, 1.0, 0.02
+        )
+
+        self.assertAlmostEqual(
+            result.pure_pursuit.lookahead_distance_m, 0.45
+        )
+
+    def test_vehicle_speed_changes_pure_pursuit_lookahead(self):
+        path = [(index * 0.1, 0.0) for index in range(21)]
+        core = make_core(speed_lookahead=speed_lookahead_config())
+
+        low_speed = core.update(
+            VehicleState(0.0, 0.0, 0.0, 0.55), path, 0.55, 0.02
+        )
+        high_speed = core.update(
+            VehicleState(0.0, 0.0, 0.0, 1.5), path, 1.5, 0.02
+        )
+
+        self.assertAlmostEqual(
+            low_speed.pure_pursuit.lookahead_distance_m, 0.45
+        )
+        self.assertAlmostEqual(
+            high_speed.pure_pursuit.lookahead_distance_m, 0.825
+        )
+        self.assertGreater(
+            high_speed.pure_pursuit.target_index,
+            low_speed.pure_pursuit.target_index,
+        )
+
+    def test_curvature_adaptive_caps_speed_based_lookahead(self):
+        speed_config = speed_lookahead_config()
+        adaptive = adaptive_config(
+            min_lookahead_m=0.25,
+            max_lookahead_m=1.50,
+            curvature_reference_inv_m=0.01,
+        )
+        core = make_core(adaptive=adaptive, speed_lookahead=speed_config)
+        straight = [(0.0, 0.0), (0.5, 0.0), (1.0, 0.0), (1.5, 0.0)]
+        sharp = [(0.0, 0.0), (0.3, 0.0), (0.3, 0.3), (0.3, 0.6)]
+        state = VehicleState(0.0, 0.0, 0.0, 1.5)
+
+        straight_result = core.update(state, straight, 1.5, 0.02)
+        sharp_result = core.update(state, sharp, 1.5, 0.02)
+
+        self.assertAlmostEqual(
+            straight_result.pure_pursuit.lookahead_distance_m, 0.825
+        )
+        self.assertAlmostEqual(
+            sharp_result.pure_pursuit.lookahead_distance_m, 0.25
+        )
+
     def test_point_five_target_is_reduced_by_point_three_speed_limit(self):
         result = make_core(
             adaptive_config(max_lateral_acceleration_m_s2=0.01)

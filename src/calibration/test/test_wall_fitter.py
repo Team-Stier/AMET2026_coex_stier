@@ -98,6 +98,43 @@ def test_rejects_a_single_visible_wall():
     assert fitter.fit(points, (6.0, 3.5, 0.0)) is None
 
 
-def test_rejects_two_wall_configuration():
-    with pytest.raises(ValueError, match="between 3 and 4"):
-        RectangleWallFitter((0.0, 12.0, 0.0, 7.0), minimum_walls=2)
+def test_recovers_pose_from_two_perpendicular_walls():
+    truth = (1.52, 3.31, -1.48)
+    horizontal = np.linspace(0.1, 11.9, 120)
+    vertical = np.linspace(0.1, 6.9, 70)
+    adjacent_walls = np.vstack(
+        (
+            np.column_stack((horizontal, np.zeros_like(horizontal))),
+            np.column_stack((np.zeros_like(vertical), vertical)),
+        )
+    )
+    fitter = RectangleWallFitter(
+        (0.0, 12.0, 0.0, 7.0), minimum_walls=2
+    )
+
+    result = fitter.fit(
+        in_lidar_frame(adjacent_walls, truth),
+        (1.4, 3.4, -math.pi / 2.0),
+    )
+
+    assert result is not None
+    assert np.linalg.norm(np.asarray(result.pose[:2]) - truth[:2]) < 0.08
+    assert abs(normalize_angle(result.pose[2] - truth[2])) < 0.02
+    assert result.rms_error_m < 0.08
+
+
+def test_rejects_two_parallel_walls():
+    horizontal = np.linspace(0.1, 11.9, 120)
+    parallel_walls = np.vstack(
+        (
+            np.column_stack((horizontal, np.zeros_like(horizontal))),
+            np.column_stack((horizontal, np.full_like(horizontal, 7.0))),
+        )
+    )
+    fitter = RectangleWallFitter(
+        (0.0, 12.0, 0.0, 7.0), minimum_walls=2
+    )
+
+    points = in_lidar_frame(parallel_walls, (6.0, 3.5, 0.0))
+
+    assert fitter.fit(points, (6.0, 3.5, 0.0)) is None

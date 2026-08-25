@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import copy
 import math
 
+from geometry_msgs.msg import TwistWithCovariance
 import numpy as np
 import rclpy
 from nav_msgs.msg import Odometry
@@ -11,10 +13,42 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
 
 from calibration.wall_fitter import (
+    FitResult,
     RectangleWallFitter,
     ego_pose_from_lidar,
     lidar_pose_from_ego,
 )
+
+
+def propagate_pose_with_relative_motion(
+    calibrated_anchor: tuple[float, float, float],
+    prior_anchor: tuple[float, float, float],
+    current_prior: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    """Apply only a prior's relative SE(2) motion to a calibrated map pose."""
+    anchor_x, anchor_y, anchor_yaw = prior_anchor
+    current_x, current_y, current_yaw = current_prior
+    calibrated_x, calibrated_y, calibrated_yaw = calibrated_anchor
+
+    delta_x = current_x - anchor_x
+    delta_y = current_y - anchor_y
+    local_x = math.cos(anchor_yaw) * delta_x + math.sin(anchor_yaw) * delta_y
+    local_y = -math.sin(anchor_yaw) * delta_x + math.cos(anchor_yaw) * delta_y
+    predicted_x = (
+        calibrated_x
+        + math.cos(calibrated_yaw) * local_x
+        - math.sin(calibrated_yaw) * local_y
+    )
+    predicted_y = (
+        calibrated_y
+        + math.sin(calibrated_yaw) * local_x
+        + math.cos(calibrated_yaw) * local_y
+    )
+    predicted_yaw = math.atan2(
+        math.sin(calibrated_yaw + current_yaw - anchor_yaw),
+        math.cos(calibrated_yaw + current_yaw - anchor_yaw),
+    )
+    return predicted_x, predicted_y, predicted_yaw
 
 
 class CalibrationNode(Node):
@@ -32,6 +66,12 @@ class CalibrationNode(Node):
         self._maximum_rms_error_m = float(
             self.get_parameter("maximum_rms_error_m").value
         )
+        self._fallback_position_variance_m2 = float(
+            self.get_parameter("fallback_position_variance_m2").value
+        )
+        self._fallback_yaw_variance_rad2 = float(
+            self.get_parameter("fallback_yaw_variance_rad2").value
+        )
         maximum_prior_age_sec = float(
             self.get_parameter("maximum_prior_age_sec").value
         )
@@ -46,6 +86,10 @@ class CalibrationNode(Node):
             or self._maximum_rms_error_m <= 0.0
             or not math.isfinite(maximum_prior_age_sec)
             or maximum_prior_age_sec <= 0.0
+            or not math.isfinite(self._fallback_position_variance_m2)
+            or self._fallback_position_variance_m2 <= 0.0
+            or not math.isfinite(self._fallback_yaw_variance_rad2)
+            or self._fallback_yaw_variance_rad2 <= 0.0
             or not all(math.isfinite(value) for value in initial_ego_pose)
         ):
             raise ValueError("pose parameters must be finite and thresholds positive")
@@ -54,22 +98,39 @@ class CalibrationNode(Node):
             initial_ego_pose, self._lidar_offset_x_m
         )
         self._pose = self._initial_pose
+        self._tracking_initialized = False
         self._last_stamp_ns: int | None = None
         self._latest_prior_pose: tuple[float, float, float] | None = None
         self._latest_prior_stamp_ns: int | None = None
+        self._latest_prior_twist: TwistWithCovariance | None = None
+        self._latest_prior_twist_stamp_ns: int | None = None
+        self._tracking_pose_anchor: tuple[float, float, float] | None = None
+        self._tracking_prior_anchor: tuple[float, float, float] | None = None
 
+        wall_bounds = (
+            float(self.get_parameter("wall_minimum_x_m").value),
+            float(self.get_parameter("wall_maximum_x_m").value),
+            float(self.get_parameter("wall_minimum_y_m").value),
+            float(self.get_parameter("wall_maximum_y_m").value),
+        )
+        minimum_walls = int(self.get_parameter("minimum_walls").value)
+        self._two_wall_maximum_rms_error_m = float(
+            self.get_parameter("two_wall_maximum_rms_error_m").value
+        )
+        if minimum_walls < 2 or minimum_walls > 4:
+            raise ValueError("minimum_walls must be between 2 and 4")
+        if (
+            not math.isfinite(self._two_wall_maximum_rms_error_m)
+            or self._two_wall_maximum_rms_error_m <= 0.0
+        ):
+            raise ValueError("two-wall RMS threshold must be finite and positive")
         self._fitter = RectangleWallFitter(
-            (
-                float(self.get_parameter("wall_minimum_x_m").value),
-                float(self.get_parameter("wall_maximum_x_m").value),
-                float(self.get_parameter("wall_minimum_y_m").value),
-                float(self.get_parameter("wall_maximum_y_m").value),
-            ),
+            wall_bounds,
             maximum_match_distance_m=float(
                 self.get_parameter("maximum_match_distance_m").value
             ),
             minimum_matches=int(self.get_parameter("minimum_matches").value),
-            minimum_walls=int(self.get_parameter("minimum_walls").value),
+            minimum_walls=max(3, minimum_walls),
             minimum_matches_per_wall=int(
                 self.get_parameter("minimum_matches_per_wall").value
             ),
@@ -80,6 +141,25 @@ class CalibrationNode(Node):
                 self.get_parameter("maximum_yaw_step_rad").value
             ),
         )
+        self._two_wall_fitter: RectangleWallFitter | None = None
+        if minimum_walls == 2:
+            self._two_wall_fitter = RectangleWallFitter(
+                wall_bounds,
+                maximum_match_distance_m=float(
+                    self.get_parameter("maximum_match_distance_m").value
+                ),
+                minimum_matches=int(self.get_parameter("minimum_matches").value),
+                minimum_walls=2,
+                minimum_matches_per_wall=int(
+                    self.get_parameter("two_wall_minimum_matches_per_wall").value
+                ),
+                maximum_position_step_m=float(
+                    self.get_parameter("two_wall_maximum_position_step_m").value
+                ),
+                maximum_yaw_step_rad=float(
+                    self.get_parameter("two_wall_maximum_yaw_step_rad").value
+                ),
+            )
 
         self._publisher = self.create_publisher(
             Odometry,
@@ -101,7 +181,7 @@ class CalibrationNode(Node):
         self.get_logger().info(
             "rectangle-wall calibration ready: /scan + /pose prior -> "
             "/pose/calibration; "
-            f"initial ego pose={initial_ego_pose}"
+            f"initial ego pose={initial_ego_pose}, minimum walls={minimum_walls}"
         )
 
     def _declare_parameters(self) -> None:
@@ -114,8 +194,8 @@ class CalibrationNode(Node):
         self.declare_parameter("wall_maximum_x_m", 12.0)
         self.declare_parameter("wall_minimum_y_m", 0.0)
         self.declare_parameter("wall_maximum_y_m", 7.0)
-        # A rectangle has symmetric absolute poses. This seed (or a fresh /pose
-        # retry prior) chooses one; the previous wall fit keeps it continuous.
+        # A rectangle has symmetric absolute poses. The first accepted wall fit
+        # always starts from this seed; later fits keep that solution continuous.
         # First center point in rddf/rddf_real.csv, facing map -Y.
         self.declare_parameter("initial_pose_x_m", 1.400001)
         self.declare_parameter("initial_pose_y_m", 3.394607)
@@ -123,11 +203,19 @@ class CalibrationNode(Node):
         self.declare_parameter("scan_stride", 2)
         self.declare_parameter("maximum_match_distance_m", 0.30)
         self.declare_parameter("minimum_matches", 50)
-        self.declare_parameter("minimum_walls", 3)
+        self.declare_parameter("minimum_walls", 2)
         self.declare_parameter("minimum_matches_per_wall", 8)
         self.declare_parameter("maximum_position_step_m", 0.45)
         self.declare_parameter("maximum_yaw_step_rad", 0.35)
         self.declare_parameter("maximum_rms_error_m", 0.10)
+        # Fallback is deliberately less certain than a wall fit. These values
+        # are exposed even though the current planner does not consume covariance.
+        self.declare_parameter("fallback_position_variance_m2", 0.04)
+        self.declare_parameter("fallback_yaw_variance_rad2", 0.030461741978670857)
+        self.declare_parameter("two_wall_minimum_matches_per_wall", 12)
+        self.declare_parameter("two_wall_maximum_position_step_m", 0.25)
+        self.declare_parameter("two_wall_maximum_yaw_step_rad", 0.15)
+        self.declare_parameter("two_wall_maximum_rms_error_m", 0.08)
         self.declare_parameter("maximum_prior_age_sec", 0.25)
 
     def _on_prior(self, message: Odometry) -> None:
@@ -154,10 +242,33 @@ class CalibrationNode(Node):
         self._latest_prior_pose = lidar_pose_from_ego(
             (float(position.x), float(position.y), yaw), self._lidar_offset_x_m
         )
-        self._latest_prior_stamp_ns = (
+        prior_stamp_ns = (
             int(message.header.stamp.sec) * 1_000_000_000
             + int(message.header.stamp.nanosec)
         )
+        self._latest_prior_stamp_ns = prior_stamp_ns
+
+        twist = message.twist.twist
+        twist_values = (
+            twist.linear.x,
+            twist.linear.y,
+            twist.linear.z,
+            twist.angular.x,
+            twist.angular.y,
+            twist.angular.z,
+        )
+        if not all(math.isfinite(value) for value in twist_values):
+            self._latest_prior_twist = None
+            self._latest_prior_twist_stamp_ns = None
+            return
+
+        forwarded_twist = copy.deepcopy(message.twist)
+        if not all(math.isfinite(value) for value in forwarded_twist.covariance):
+            forwarded_twist.covariance = [0.0] * 36
+            for index in (0, 7, 14, 21, 28, 35):
+                forwarded_twist.covariance[index] = 1.0e6
+        self._latest_prior_twist = forwarded_twist
+        self._latest_prior_twist_stamp_ns = prior_stamp_ns
 
     def _scan_points(self, scan: LaserScan) -> np.ndarray | None:
         if (
@@ -189,18 +300,83 @@ class CalibrationNode(Node):
 
     def _reset_tracking(self) -> None:
         self._pose = self._initial_pose
+        self._tracking_initialized = False
         self._latest_prior_pose = None
         self._latest_prior_stamp_ns = None
+        self._latest_prior_twist = None
+        self._latest_prior_twist_stamp_ns = None
+        self._tracking_pose_anchor = None
+        self._tracking_prior_anchor = None
+
+    def _fresh_prior(self, stamp_ns: int) -> bool:
+        return (
+            self._latest_prior_pose is not None
+            and self._latest_prior_stamp_ns is not None
+            and abs(stamp_ns - self._latest_prior_stamp_ns)
+            <= self._maximum_prior_age_ns
+        )
+
+    def _fresh_twist(self, stamp_ns: int) -> bool:
+        return (
+            self._latest_prior_twist is not None
+            and self._latest_prior_twist_stamp_ns is not None
+            and abs(stamp_ns - self._latest_prior_twist_stamp_ns)
+            <= self._maximum_prior_age_ns
+        )
+
+    def _fit_initial_poses(
+        self, stamp_ns: int
+    ) -> tuple[tuple[float, float, float], ...]:
+        if not self._tracking_initialized:
+            return (self._initial_pose,)
+
+        predicted = self._fallback_pose(stamp_ns)
+        if predicted is not None and predicted != self._pose:
+            return (predicted, self._pose)
+        return (self._pose,)
+
+    def _fallback_pose(
+        self, stamp_ns: int
+    ) -> tuple[float, float, float] | None:
+        if (
+            not self._tracking_initialized
+            or not self._fresh_prior(stamp_ns)
+            or self._tracking_pose_anchor is None
+            or self._tracking_prior_anchor is None
+            or self._latest_prior_pose is None
+        ):
+            return None
+        return propagate_pose_with_relative_motion(
+            self._tracking_pose_anchor,
+            self._tracking_prior_anchor,
+            self._latest_prior_pose,
+        )
+
+    def _accept_pose(
+        self, pose: tuple[float, float, float], stamp_ns: int
+    ) -> None:
+        self._pose = pose
+        self._tracking_initialized = True
+        if self._fresh_prior(stamp_ns):
+            self._tracking_pose_anchor = pose
+            self._tracking_prior_anchor = self._latest_prior_pose
+        else:
+            # Never reuse an anchor from an older fit after recovery.
+            self._tracking_pose_anchor = None
+            self._tracking_prior_anchor = None
+
+    def _fit(self, points: np.ndarray, stamp_ns: int) -> FitResult | None:
+        initial_poses = self._fit_initial_poses(stamp_ns)
+        result = self._fitter.fit_first(
+            points, initial_poses, self._maximum_rms_error_m
+        )
+        if result is not None or self._two_wall_fitter is None:
+            return result
+        return self._two_wall_fitter.fit_first(
+            points, initial_poses, self._two_wall_maximum_rms_error_m
+        )
 
     def _on_scan(self, scan: LaserScan) -> None:
-        points = self._scan_points(scan)
-        if points is None:
-            self.get_logger().warning(
-                "ignoring invalid or undersampled /scan in an unexpected frame",
-                throttle_duration_sec=2.0,
-            )
-            return
-
         stamp_ns = int(scan.header.stamp.sec) * 1_000_000_000 + int(
             scan.header.stamp.nanosec
         )
@@ -209,28 +385,46 @@ class CalibrationNode(Node):
             self.get_logger().warning("scan time moved backwards; reset initial pose")
         self._last_stamp_ns = stamp_ns
 
-        initial_poses = (self._pose,)
-        if (
-            self._latest_prior_pose is not None
-            and self._latest_prior_stamp_ns is not None
-            and abs(stamp_ns - self._latest_prior_stamp_ns)
-            <= self._maximum_prior_age_ns
-        ):
-            initial_poses = (self._latest_prior_pose, self._pose)
-        result = self._fitter.fit_first(
-            points, initial_poses, self._maximum_rms_error_m
-        )
-        if result is None:
+        points = self._scan_points(scan)
+        if points is None:
+            fallback_pose = self._fallback_pose(stamp_ns)
+            if fallback_pose is None:
+                self.get_logger().warning(
+                    "invalid /scan and odometry fallback unavailable",
+                    throttle_duration_sec=2.0,
+                )
+                return
+            self._pose = fallback_pose
+            self._publisher.publish(self._odometry(scan, None))
             self.get_logger().warning(
-                "rectangle wall fit rejected",
+                "invalid /scan; publishing odometry fallback",
                 throttle_duration_sec=2.0,
             )
             return
 
-        self._pose = result.pose
+        result = self._fit(points, stamp_ns)
+        if result is None:
+            fallback_pose = self._fallback_pose(stamp_ns)
+            if fallback_pose is not None:
+                self._pose = fallback_pose
+                self._publisher.publish(self._odometry(scan, None))
+                self.get_logger().warning(
+                    "rectangle wall fit rejected; publishing odometry fallback",
+                    throttle_duration_sec=2.0,
+                )
+                return
+            self.get_logger().warning(
+                "rectangle wall fit rejected and odometry fallback unavailable",
+                throttle_duration_sec=2.0,
+            )
+            return
+
+        self._accept_pose(result.pose, stamp_ns)
         self._publisher.publish(self._odometry(scan, result.rms_error_m))
 
-    def _odometry(self, scan: LaserScan, rms_error_m: float) -> Odometry:
+    def _odometry(
+        self, scan: LaserScan, rms_error_m: float | None
+    ) -> Odometry:
         x, y, yaw = ego_pose_from_lidar(
             self._pose, self._lidar_offset_x_m
         )
@@ -245,15 +439,26 @@ class CalibrationNode(Node):
         message.pose.pose.orientation.z = math.sin(yaw / 2.0)
         message.pose.pose.orientation.w = math.cos(yaw / 2.0)
 
-        variance = max(rms_error_m * rms_error_m, 1.0e-4)
-        message.pose.covariance[0] = variance
-        message.pose.covariance[7] = variance
+        if rms_error_m is None:
+            position_variance = self._fallback_position_variance_m2
+            yaw_variance = self._fallback_yaw_variance_rad2
+        else:
+            position_variance = max(rms_error_m * rms_error_m, 1.0e-4)
+            yaw_variance = position_variance
+        message.pose.covariance[0] = position_variance
+        message.pose.covariance[7] = position_variance
         message.pose.covariance[14] = 1.0e6
         message.pose.covariance[21] = 1.0e6
         message.pose.covariance[28] = 1.0e6
-        message.pose.covariance[35] = variance
-        for index in (0, 7, 14, 21, 28, 35):
-            message.twist.covariance[index] = 1.0e6
+        message.pose.covariance[35] = yaw_variance
+        scan_stamp_ns = int(scan.header.stamp.sec) * 1_000_000_000 + int(
+            scan.header.stamp.nanosec
+        )
+        if self._fresh_twist(scan_stamp_ns):
+            message.twist = copy.deepcopy(self._latest_prior_twist)
+        else:
+            for index in (0, 7, 14, 21, 28, 35):
+                message.twist.covariance[index] = 1.0e6
         return message
 
 

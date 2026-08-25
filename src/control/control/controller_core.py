@@ -1,9 +1,15 @@
 """ROS-independent combined lateral and longitudinal controller."""
 
+import math
 from typing import Sequence
 
 from .adaptive_policy import AdaptiveControlPolicy
-from .models import ControllerConfig, ControllerResult, VehicleState
+from .models import (
+    ControllerConfig,
+    ControllerResult,
+    SpeedLookaheadConfig,
+    VehicleState,
+)
 from .pid import PIDController
 from .pure_pursuit import PointInput, PurePursuit
 
@@ -32,13 +38,23 @@ class ControllerCore:
         adaptive_result = None
         lookahead_override = None
         speed_limit = self.config.max_speed_m_s
+        if self.config.speed_lookahead.enabled:
+            lookahead_override = speed_lookahead_distance_m(
+                vehicle_state.speed, self.config.speed_lookahead
+            )
         if self.config.adaptive_control.enabled:
             adaptive_result = self.adaptive_policy.compute(
                 vehicle_state,
                 path,
                 closed_loop=self.pure_pursuit.config.closed_loop,
             )
-            lookahead_override = adaptive_result.lookahead_distance_m
+            if lookahead_override is None:
+                lookahead_override = adaptive_result.lookahead_distance_m
+            else:
+                lookahead_override = min(
+                    lookahead_override,
+                    adaptive_result.lookahead_distance_m,
+                )
             speed_limit = adaptive_result.speed_limit_m_s
 
         lateral = self.pure_pursuit.compute(
@@ -86,3 +102,18 @@ class ControllerCore:
 
 def _clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, value))
+
+
+def speed_lookahead_distance_m(
+    speed_m_s: float, config: SpeedLookaheadConfig
+) -> float:
+    """Return a bounded lookahead using the magnitude of vehicle speed."""
+
+    if not math.isfinite(speed_m_s):
+        raise ValueError("vehicle speed must be finite")
+    requested = config.lookahead_time_sec * abs(speed_m_s)
+    return _clamp(
+        requested,
+        config.min_lookahead_m,
+        config.max_lookahead_m,
+    )
