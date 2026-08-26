@@ -32,8 +32,8 @@ path_planning_node:
     collision_check_step_m: 0.025
     # Hybrid A*가 한 번 확장할 때 각 조향 후보로 전진시키는 거리다.
     motion_primitive_length_m: 0.25
-    # 제어 보정 여유 2도를 남긴 전진 primitive 조향각이다. 단위는 degree이며 모든 항목을 확장한다.
-    steering_candidates_deg: [-18.0, -9.0, 0.0, 9.0, 18.0]
+    # 제어 보정 여유 1도를 남긴 전진 primitive 조향각이다. 단위는 degree이며 모든 항목을 확장한다.
+    steering_candidates_deg: [-19.0, -9.0, 0.0, 9.0, 19.0]
     # RDDF 진행도를 이 간격으로 양자화해 같은 탐색 상태인지 판별한다.
     progress_resolution_m: 0.20
     # 목표 progress와 목표 횡단선의 전후 방향 오차에 허용하는 거리이며 휴리스틱에도 반영된다.

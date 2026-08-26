@@ -6,4 +6,4 @@ visualizer:
     sim_timeout_sec: 0.05
     sim_retry_sec: 2.0
     # path_planning.yaml의 obstacle_inflation_radius_m와 동일하게 유지한다.
-    obstacle_inflation_radius_m: 0.30
+    obstacle_inflation_radius_m: 0.28
