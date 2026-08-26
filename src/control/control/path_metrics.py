@@ -15,6 +15,7 @@ ROBUST_HIGH_CURVATURE_COUNT = 3
 WIDE_CURVATURE_HALF_SPAN_M = 0.40
 PERSISTENT_TURN_SUPPORT_M = 0.75
 MAX_STRAIGHT_GAP_M = 0.50
+CONSISTENT_TURN_RATIO = 0.70
 
 
 def coerce_path(path: Sequence[PointInput]) -> List[PathPoint]:
@@ -191,6 +192,14 @@ def _persistent_turn_curvature(
     return max(best, close_run())
 
 
+def _turn_coherence(samples: Sequence[Tuple[float, float]]) -> float:
+    absolute_turn = sum(abs(curvature) * support for curvature, support in samples)
+    if absolute_turn <= MIN_TWICE_TRIANGLE_AREA_M2:
+        return 0.0
+    net_turn = sum(curvature * support for curvature, support in samples)
+    return abs(net_turn) / absolute_turn
+
+
 def preview_curvature(
     state: VehicleState,
     path: Sequence[PointInput],
@@ -256,6 +265,8 @@ def preview_curvature(
     raw_curvature = _high_curvature_mean(
         [abs(curvature) for curvature, _ in samples]
     )
+    if _turn_coherence(samples) >= CONSISTENT_TURN_RATIO:
+        return raw_curvature
     wide_curvature = _wide_preview_curvature(
         points, preview_indices
     )
