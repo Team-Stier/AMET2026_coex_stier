@@ -123,16 +123,42 @@ stop_legacy() {
 }
 
 repair_corrupt_install_prefixes() {
-    local package_xml install_prefix package_name
+    local artifact install_prefix package_name
+    declare -A removed=()
 
-    for package_xml in "$WORKSPACE_ROOT"/install/*/share/*/package.xml; do
-        [[ -e "$package_xml" ]] || continue
-        [[ -s "$package_xml" ]] && continue
+    for artifact in "$WORKSPACE_ROOT"/install/*/share/*/package.xml; do
+        [[ -e "$artifact" ]] || continue
+        [[ -s "$artifact" ]] && continue
 
-        install_prefix=${package_xml%%/share/*}
+        install_prefix=${artifact%%/share/*}
         package_name=${install_prefix##*/}
-        echo "[build] removing corrupt install prefix: $package_name" >&2
-        rm -rf -- "$install_prefix"
+        echo "[build] removing corrupt build artifacts: $package_name" >&2
+        rm -rf -- "$WORKSPACE_ROOT/build/$package_name" "$install_prefix"
+        removed["$install_prefix"]=1
+    done
+
+    for artifact in "$WORKSPACE_ROOT"/install/*/lib/*/*; do
+        [[ -f "$artifact" && -x "$artifact" ]] || continue
+        [[ -s "$artifact" ]] && continue
+
+        install_prefix=${artifact%%/lib/*}
+        [[ -z "${removed[$install_prefix]:-}" ]] || continue
+        package_name=${install_prefix##*/}
+        echo "[build] removing corrupt build artifacts: $package_name" >&2
+        rm -rf -- "$WORKSPACE_ROOT/build/$package_name" "$install_prefix"
+        removed["$install_prefix"]=1
+    done
+}
+
+verify_install_executables() {
+    local artifact
+
+    for artifact in "$WORKSPACE_ROOT"/install/*/lib/*/*; do
+        [[ -f "$artifact" && -x "$artifact" ]] || continue
+        if [[ ! -s "$artifact" ]]; then
+            echo "error: build produced an empty executable: $artifact" >&2
+            return 1
+        fi
     done
 }
 
@@ -175,6 +201,7 @@ ros2 daemon stop >/dev/null 2>&1 || true
 cd "$WORKSPACE_ROOT"
 repair_corrupt_install_prefixes
 colcon build --cmake-clean-cache
+verify_install_executables
 
 # shellcheck disable=SC1091
 set +u
