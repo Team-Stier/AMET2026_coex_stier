@@ -26,6 +26,7 @@
 #include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/float64.hpp>
 
 #include "path_planning/planner_core.hpp"
 
@@ -158,7 +159,7 @@ public:
   {
   }
 
-  nav_msgs::msg::Path slice(const StampedPose & current_pose) const
+  std::pair<nav_msgs::msg::Path, double> slice(const StampedPose & current_pose) const
   {
     nav_msgs::msg::Path message;
     message.header.stamp = current_pose.stamp;
@@ -166,7 +167,7 @@ public:
 
     const std::shared_ptr<const PlannedPath> path = registry_.current_path();
     if (!path || path->points.empty() || path->frame_id != current_pose.frame_id) {
-      return message;
+      return {std::move(message), local_path_length_};
     }
 
     std::size_t nearest_index = 0;
@@ -202,7 +203,7 @@ public:
         break;
       }
     }
-    return message;
+    return {std::move(message), std::max(0.0, local_path_length_ - accumulated_length)};
   }
 
 private:
@@ -369,6 +370,7 @@ public:
       std::make_unique<LocalPathPublisher>(*registry_, local_path_length_m_);
 
     path_publisher_ = create_publisher<nav_msgs::msg::Path>("/path", rclcpp::QoS(10));
+    lack_publisher_ = create_publisher<std_msgs::msg::Float64>("/lack", rclcpp::QoS(10));
     if (publish_search_tree_debug_) {
       rclcpp::QoS debug_qos{rclcpp::KeepLast(1)};
       debug_qos.best_effort().durability_volatile();
@@ -562,7 +564,11 @@ public:
     pose.stamp = stamp;
     pose.frame_id = kMapFrameId;
     registry_->update_pose(pose);
-    path_publisher_->publish(local_path_publisher_->slice(pose));
+    auto [path, lack] = local_path_publisher_->slice(pose);
+    path_publisher_->publish(std::move(path));
+    std_msgs::msg::Float64 lack_message;
+    lack_message.data = lack;
+    lack_publisher_->publish(lack_message);
   }
 
   void on_object_info(const interfaces::msg::Objects::ConstSharedPtr message)
@@ -663,6 +669,7 @@ private:
   std::unique_ptr<PlanningRegistry> registry_;
   std::unique_ptr<LocalPathPublisher> local_path_publisher_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_publisher_;
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr lack_publisher_;
   rclcpp::Publisher<interfaces::msg::SearchTree>::SharedPtr search_tree_publisher_;
   rclcpp::Subscription<interfaces::msg::Objects>::SharedPtr object_subscription_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometry_subscription_;

@@ -52,6 +52,37 @@ def reference_offset_from_calibrated_pose(
     return offset
 
 
+def lack_speed_limit_m_s(
+    lack_m: float,
+    min_speed_m_s: float,
+    max_speed_m_s: float,
+    tolerance_m: float,
+    lack_at_min_speed_m: float,
+) -> float:
+    """Map local-path shortage to a bounded speed limit."""
+
+    values = (
+        lack_m,
+        min_speed_m_s,
+        max_speed_m_s,
+        tolerance_m,
+        lack_at_min_speed_m,
+    )
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("lack speed control values must be finite")
+    if lack_m < 0.0 or min_speed_m_s < 0.0 or tolerance_m < 0.0:
+        raise ValueError("lack and minimum values must not be negative")
+    if min_speed_m_s > max_speed_m_s:
+        raise ValueError("min_speed_m_s must not exceed max_speed_m_s")
+    if lack_at_min_speed_m <= tolerance_m:
+        raise ValueError("lack_at_min_speed_m must exceed tolerance_m")
+
+    ratio = max(0.0, min(1.0, (lack_m - tolerance_m) / (
+        lack_at_min_speed_m - tolerance_m
+    )))
+    return max_speed_m_s - ratio * (max_speed_m_s - min_speed_m_s)
+
+
 class ControlNode(Node):
     def __init__(self, **kwargs):
         super().__init__("control_node", **kwargs)
@@ -59,6 +90,26 @@ class ControlNode(Node):
         self.target_speed = self._float_parameter("target_speed_m_s", 0.55)
         if self.target_speed < 0.0:
             raise ValueError("target_speed_m_s must not be negative")
+        self.lack_min_speed_m_s = self._float_parameter(
+            "lack_speed_control.min_speed_m_s", 1.0
+        )
+        self.lack_max_speed_m_s = self._float_parameter(
+            "lack_speed_control.max_speed_m_s", 2.4
+        )
+        self.lack_tolerance_m = self._float_parameter(
+            "lack_speed_control.tolerance_m", 0.1
+        )
+        self.lack_at_min_speed_m = self._float_parameter(
+            "lack_speed_control.lack_at_min_speed_m", 1.0
+        )
+        lack_speed_limit_m_s(
+            0.0,
+            self.lack_min_speed_m_s,
+            self.lack_max_speed_m_s,
+            self.lack_tolerance_m,
+            self.lack_at_min_speed_m,
+        )
+        self.lack_m = self.lack_at_min_speed_m
         self.camera_pan_command = self._float_parameter(
             "camera_pan_command_rad", 0.0
         )
@@ -186,6 +237,9 @@ class ControlNode(Node):
         self.steering_pub = self.create_publisher(Float64, "/steering", 10)
         self.camera_pan_pub = self.create_publisher(Float64, "/camera/pan", 10)
         self.path_sub = self.create_subscription(Path, "/path", self.on_path, 10)
+        self.lack_sub = self.create_subscription(
+            Float64, "/lack", self.on_lack, 10
+        )
         self.gosign_sub = self.create_subscription(
             Bool, "/gosign", self.on_gosign, 10
         )
@@ -243,6 +297,12 @@ class ControlNode(Node):
         )
         self.last_pose_time = time.monotonic()
 
+    def on_lack(self, lack: Float64) -> None:
+        if math.isfinite(lack.data) and lack.data >= 0.0:
+            self.lack_m = lack.data
+        else:
+            self.lack_m = self.lack_at_min_speed_m
+
     def on_path(self, path: Path) -> None:
         now = time.monotonic()
         path_points = [
@@ -284,7 +344,17 @@ class ControlNode(Node):
         if not math.isfinite(result.speed_command_m_s + result.steering_rad):
             self._stop_control()
             return
-        self.publish_commands(result.speed_command_m_s, result.steering_rad)
+        lack_speed_limit = lack_speed_limit_m_s(
+            self.lack_m,
+            self.lack_min_speed_m_s,
+            self.lack_max_speed_m_s,
+            self.lack_tolerance_m,
+            self.lack_at_min_speed_m,
+        )
+        self.publish_commands(
+            min(result.speed_command_m_s, lack_speed_limit),
+            result.steering_rad,
+        )
 
     def on_watchdog(self) -> None:
         now = time.monotonic()

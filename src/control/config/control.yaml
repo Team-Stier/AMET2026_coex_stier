@@ -5,6 +5,11 @@ control_node:
     max_speed_m_s: 3.0
     # 이 값 이하의 목표속도는 완전 정지 명령으로 처리한다.
     stop_speed_threshold_m_s: 0.000001
+    # /lack이 tolerance 이하면 max speed, lack_at_min_speed 이상이면 min speed이며 그 사이는 선형 감속한다.
+    lack_speed_control.min_speed_m_s: 0.5
+    lack_speed_control.max_speed_m_s: 2.4
+    lack_speed_control.tolerance_m: 0.1
+    lack_speed_control.lack_at_min_speed_m: 0.5
     # /camera/pan으로 계속 보낼 고정 팬 각도다. 단위는 rad이다.
     camera_pan_command_rad: 0.0
     # 보정 pose 또는 path가 이 시간 동안 갱신되지 않으면 watchdog이 정지한다.

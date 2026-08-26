@@ -6,12 +6,13 @@ from nav_msgs.msg import Odometry, Path
 import pytest
 import rclpy
 from rclpy.parameter import Parameter
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, Float64
 
 from control.control_node import (
     ControlNode,
     DEFAULT_CALIBRATED_POSE_ORIGIN_X_FROM_LIDAR_M,
     reference_offset_from_calibrated_pose,
+    lack_speed_limit_m_s,
 )
 
 
@@ -38,6 +39,21 @@ def test_reference_offset_uses_lidar_origin(
     assert reference_offset_from_calibrated_pose(
         reference_x_from_lidar_m
     ) == pytest.approx(expected_offset_m)
+
+
+@pytest.mark.parametrize(
+    ("lack_m", "expected_speed_m_s"),
+    [(0.0, 2.4), (0.1, 2.4), (0.55, 1.7), (1.0, 1.0), (2.0, 1.0)],
+)
+def test_lack_speed_limit_maps_linearly(lack_m, expected_speed_m_s):
+    assert lack_speed_limit_m_s(
+        lack_m, 1.0, 2.4, 0.1, 1.0
+    ) == pytest.approx(expected_speed_m_s)
+
+
+def test_lack_speed_limit_rejects_invalid_range():
+    with pytest.raises(ValueError, match="must exceed"):
+        lack_speed_limit_m_s(0.0, 1.0, 2.4, 0.1, 0.1)
 
 
 def test_reference_offset_rejects_nonfinite_value():
@@ -92,6 +108,11 @@ def test_control_node_latches_first_true_gosign():
         node.on_path(path)
         assert node.speed_pub.values[-1] == pytest.approx(0.55)
         assert node.steering_pub.values[-1] == pytest.approx(0.0)
+
+        node.target_speed = 2.4
+        node.on_lack(Float64(data=0.55))
+        node.on_path(path)
+        assert node.speed_pub.values[-1] == pytest.approx(1.7)
     finally:
         node.destroy_node()
         if rclpy.ok():
@@ -242,6 +263,12 @@ def test_control_node_applies_parameter_overrides():
     node = ControlNode(
         parameter_overrides=[
             Parameter("target_speed_m_s", value=1.2),
+            Parameter("lack_speed_control.min_speed_m_s", value=0.4),
+            Parameter("lack_speed_control.max_speed_m_s", value=1.8),
+            Parameter("lack_speed_control.tolerance_m", value=0.2),
+            Parameter(
+                "lack_speed_control.lack_at_min_speed_m", value=1.2
+            ),
             Parameter("max_speed_m_s", value=2.5),
             Parameter("pose_timeout_sec", value=0.7),
             Parameter("path_timeout_sec", value=0.8),
@@ -274,6 +301,10 @@ def test_control_node_applies_parameter_overrides():
     )
     try:
         assert node.target_speed == pytest.approx(1.2)
+        assert node.lack_min_speed_m_s == pytest.approx(0.4)
+        assert node.lack_max_speed_m_s == pytest.approx(1.8)
+        assert node.lack_tolerance_m == pytest.approx(0.2)
+        assert node.lack_at_min_speed_m == pytest.approx(1.2)
         assert node.camera_pan_command == pytest.approx(0.1)
         assert node.pose_timeout_sec == pytest.approx(0.7)
         assert node.path_timeout_sec == pytest.approx(0.8)
