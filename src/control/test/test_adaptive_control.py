@@ -336,6 +336,74 @@ class ControllerIntegrationTests(unittest.TestCase):
 
 
 class PreviewCurvatureTests(unittest.TestCase):
+    def test_short_alternating_bends_are_treated_as_straight(self):
+        path = [(0.0, 0.0)] + [
+            (index * 0.25, 0.04 if index % 2 else -0.04)
+            for index in range(1, 9)
+        ]
+        local_curvatures = [
+            discrete_curvature(
+                PathPoint(*path[index - 1]),
+                PathPoint(*path[index]),
+                PathPoint(*path[index + 1]),
+            )
+            for index in range(1, len(path) - 1)
+        ]
+
+        self.assertGreater(max(local_curvatures), 1.0)
+        self.assertLess(
+            preview_curvature(
+                VehicleState(0.0, 0.0, 0.0, 0.5),
+                path,
+                preview_distance_m=2.0,
+            ),
+            1.0 / 1.2 ** 2,
+        )
+
+    def test_sustained_curve_remains_above_slowdown_threshold(self):
+        path = [
+            (math.cos(index * 0.25), math.sin(index * 0.25))
+            for index in range(10)
+        ]
+        curvature = preview_curvature(
+            VehicleState(1.0, 0.0, 0.0, 0.5),
+            path,
+            preview_distance_m=2.0,
+        )
+        self.assertGreater(curvature, 1.0 / 1.2 ** 2)
+
+    def test_s_curve_lobes_do_not_cancel_each_other(self):
+        headings = [
+            0.0,
+            0.2,
+            0.4,
+            0.6,
+            0.4,
+            0.2,
+            0.0,
+            -0.2,
+            -0.4,
+            -0.6,
+            -0.4,
+            -0.2,
+            0.0,
+        ]
+        path = [(0.0, 0.0)]
+        for heading in headings:
+            path.append(
+                (
+                    path[-1][0] + 0.25 * math.cos(heading),
+                    path[-1][1] + 0.25 * math.sin(heading),
+                )
+            )
+
+        curvature = preview_curvature(
+            VehicleState(0.0, 0.0, 0.0, 0.5),
+            path,
+            preview_distance_m=2.0,
+        )
+        self.assertGreater(curvature, 1.0 / 1.2 ** 2)
+
     def test_closed_loop_preview_wraps_across_duplicate_endpoint(self):
         path = [
             (0.0, 0.0),
