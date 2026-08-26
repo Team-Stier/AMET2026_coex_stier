@@ -122,6 +122,20 @@ stop_legacy() {
     wait_for_legacy 1
 }
 
+repair_corrupt_install_prefixes() {
+    local package_xml install_prefix package_name
+
+    for package_xml in "$WORKSPACE_ROOT"/install/*/share/*/package.xml; do
+        [[ -e "$package_xml" ]] || continue
+        [[ -s "$package_xml" ]] && continue
+
+        install_prefix=${package_xml%%/share/*}
+        package_name=${install_prefix##*/}
+        echo "[build] removing corrupt install prefix: $package_name" >&2
+        rm -rf -- "$install_prefix"
+    done
+}
+
 if [[ -s "$RUN_STATE_FILE" ]]; then
     read -r STALE_RUN_ID <"$RUN_STATE_FILE"
     if run_is_alive "$STALE_RUN_ID"; then
@@ -159,6 +173,7 @@ fi
 ros2 daemon stop >/dev/null 2>&1 || true
 
 cd "$WORKSPACE_ROOT"
+repair_corrupt_install_prefixes
 colcon build --cmake-clean-cache
 
 # shellcheck disable=SC1091
