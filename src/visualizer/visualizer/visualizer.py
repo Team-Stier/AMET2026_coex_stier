@@ -175,7 +175,7 @@ def search_tree_marker(message: SearchTree) -> Marker:
     return marker
 
 
-def object_marker(message: Objects) -> Marker:
+def object_marker(message: Objects, obstacle_inflation_radius_m: float) -> Marker:
     if message.header.frame_id != LOCAL_FRAME:
         raise ValueError(f"Objects frame must be {LOCAL_FRAME!r}")
     count = int(message.length)
@@ -195,7 +195,8 @@ def object_marker(message: Objects) -> Marker:
     marker.type = Marker.SPHERE_LIST
     marker.action = Marker.ADD if count else Marker.DELETE
     marker.pose.orientation.w = 1.0
-    marker.scale.x = marker.scale.y = marker.scale.z = 0.12
+    marker.scale.x = marker.scale.y = 2.0 * obstacle_inflation_radius_m
+    marker.scale.z = 0.02
     marker.color.r = 1.0
     marker.color.g = 0.2
     marker.color.b = 0.1
@@ -218,6 +219,14 @@ class Visualizer(Node):
         self.declare_parameter("sim_poll_rate_hz", 20.0)
         self.declare_parameter("sim_timeout_sec", 0.05)
         self.declare_parameter("sim_retry_sec", 2.0)
+        self._obstacle_inflation_radius_m = float(
+            self.declare_parameter("obstacle_inflation_radius_m", 0.25).value
+        )
+        if (
+            not math.isfinite(self._obstacle_inflation_radius_m)
+            or self._obstacle_inflation_radius_m <= 0.0
+        ):
+            raise ValueError("obstacle_inflation_radius_m must be positive")
         self._warned: set[tuple[str, ...]] = set()
 
         marker_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE)
@@ -410,7 +419,7 @@ class Visualizer(Node):
 
     def _relay_objects(self, message: Objects) -> None:
         try:
-            marker = object_marker(message)
+            marker = object_marker(message, self._obstacle_inflation_radius_m)
         except ValueError as error:
             self._warn_once(
                 ("invalid_objects", str(error)),

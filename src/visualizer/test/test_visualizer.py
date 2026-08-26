@@ -184,10 +184,11 @@ def test_object_info_becomes_lidar_attached_spheres():
     objects.x[0], objects.y[0] = 1.0, 0.25
     objects.x[1], objects.y[1] = 2.0, -0.5
 
-    marker = object_marker(objects)
+    marker = object_marker(objects, 0.25)
 
     assert marker.header == objects.header
     assert marker.type == marker.SPHERE_LIST
+    assert (marker.scale.x, marker.scale.y, marker.scale.z) == (0.5, 0.5, 0.02)
     assert [(point.x, point.y) for point in marker.points] == [
         (1.0, 0.25),
         (2.0, -0.5),
@@ -199,4 +200,4 @@ def test_object_info_rejects_non_lidar_frame():
     objects.header.frame_id = GLOBAL_FRAME
 
     with pytest.raises(ValueError, match="frame"):
-        object_marker(objects)
+        object_marker(objects, 0.25)

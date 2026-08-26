@@ -1,8 +1,8 @@
 control_node:
   ros__parameters:
     # 폐쇄 시험장/SIM 전용 한계 탐색
-    target_speed_m_s: 2.0
-    max_speed_m_s: 2.0
+    target_speed_m_s: 2.4
+    max_speed_m_s: 3.0
     # 이 값 이하의 목표속도는 완전 정지 명령으로 처리한다.
     stop_speed_threshold_m_s: 0.000001
     # /camera/pan으로 계속 보낼 고정 팬 각도다. 단위는 rad이다.
@@ -44,10 +44,10 @@ control_node:
     longitudinal_pid.integral_min: 0.0
     longitudinal_pid.integral_max: 0.0
     adaptive_control.enabled: true
-    adaptive_control.preview_distance_m: 2.00
-    adaptive_control.min_lookahead_m: 0.45
-    adaptive_control.max_lookahead_m: 0.8
+    adaptive_control.preview_distance_m: 2.0
+    adaptive_control.min_lookahead_m: 0.2
+    adaptive_control.max_lookahead_m: 0.75
     adaptive_control.curvature_reference_inv_m: 2.4
-    adaptive_control.max_lateral_acceleration_m_s2: 1.00
-    adaptive_control.min_speed_limit_m_s: 0.50
-    adaptive_control.max_speed_limit_m_s: 1.2
+    adaptive_control.max_lateral_acceleration_m_s2: 0.8
+    adaptive_control.min_speed_limit_m_s: 1.0
+    adaptive_control.max_speed_limit_m_s: 2.4
