@@ -1,7 +1,7 @@
 control_node:
   ros__parameters:
     # 폐쇄 시험장/SIM 전용 한계 탐색
-    target_speed_m_s: 2.4
+    target_speed_m_s: 2.0
     max_speed_m_s: 3.0
     # 이 값 이하의 목표속도는 완전 정지 명령으로 처리한다.
     stop_speed_threshold_m_s: 0.000001
@@ -50,4 +50,4 @@ control_node:
     adaptive_control.curvature_reference_inv_m: 2.4
     adaptive_control.max_lateral_acceleration_m_s2: 0.8
     adaptive_control.min_speed_limit_m_s: 1.0
-    adaptive_control.max_speed_limit_m_s: 2.4
+    adaptive_control.max_speed_limit_m_s: 2.0

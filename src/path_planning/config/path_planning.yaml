@@ -15,7 +15,7 @@ path_planning_node:
     # 좌우 바퀴 위치를 ±wheel_track/2로 정해 네 바퀴가 모두 트랙 밖인지 검사한다.
     wheel_track_m: 0.05
     # 검출된 각 장애물 점을 이 반지름의 원으로 만들어 차량 차체와 충돌 검사한다.
-    obstacle_inflation_radius_m: 0.28
+    obstacle_inflation_radius_m: 0.3
     # 트랙 여유 거리 lookup grid의 셀 간격이다. 작을수록 촘촘하지만 초기 계산량과 메모리가 늘어난다.
     track_lookup_resolution_m: 0.05
     # true면 성공한 Hybrid A* 탐색 트리를 수집해 /path_planning/debug/search_tree로 발행한다.
